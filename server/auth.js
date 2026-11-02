@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomBytes, createHash, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { roleFor, displayName, passwordError, EMAIL_HELP } from "./rules.js";
+import { roleFor, isValidEmail, displayName, passwordError, EMAIL_HELP } from "./rules.js";
 
 const scryptAsync = promisify(scrypt);
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -173,12 +173,12 @@ export function authRouter(
       : next(),
   );
 
-  // Returns { email, password, role }, or null unless both fields are strings and the email is a CADT address (only those can have an account).
-  function credentials(body) {
+  // Signup assigns a role; login accepts any syntactically valid email.
+  function credentials(body, { login = false } = {}) {
     if (typeof body?.email !== "string" || typeof body?.password !== "string") return null;
     const email = body.email.trim().toLowerCase();
     const role = roleFor(email);
-    return role ? { email, password: body.password, role } : null;
+    return (login ? isValidEmail(email) : role) ? { email, password: body.password, role } : null;
   }
 
   router.post("/signup", wrap(async (req, res) => {
@@ -212,8 +212,8 @@ export function authRouter(
   }));
 
   router.post("/login", wrap(async (req, res) => {
-    const input = credentials(req.body);
-    // Anything that is not a CADT address is rejected before it can fill the limiter.
+    const input = credentials(req.body, { login: true });
+    // Reject malformed addresses before they can fill the limiter.
     if (!input) return res.status(400).json({ error: EMAIL_HELP });
     const { email, password } = input;
     const settle = limit(req, "login", email);

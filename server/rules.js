@@ -4,13 +4,18 @@ const STUDENT = new RegExp(`^${NAME}\\.${NAME}\\d{0,3}@student\\.cadt\\.edu\\.kh
 const FACULTY = new RegExp(`^${NAME}(?:\\.${NAME})+\\d{0,3}@cadt\\.edu\\.kh$`, "i");
 
 export const EMAIL_HELP =
-  "Use your CADT email: LastName.FirstName@student.cadt.edu.kh for students, or @cadt.edu.kh for faculty.";
+  "Enter a valid email address. Non-CADT addresses are registered as Student accounts.";
+
+export function isValidEmail(email) {
+  return email.length <= 254 && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/i.test(email);
+}
 
 export function roleFor(email) {
-  if (email.length > 254) return null;
+  if (!isValidEmail(email)) return null;
   if (STUDENT.test(email)) return "student";
   if (FACULTY.test(email)) return "faculty";
-  return null;
+  // Personal or non-CADT institutional addresses can still create student accounts.
+  return "student";
 }
 
 // Keeps the email's order (family name first, Southeast Asian style). Never swapped to "First Last".

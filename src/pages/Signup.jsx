@@ -44,18 +44,18 @@ export default function Signup() {
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Your name comes from your CADT email, so you do not need to type it.">
+    <AuthShell title="Create your account" subtitle="Student accounts can use any email address. Faculty accounts use a CADT email.">
       <form onSubmit={submit} noValidate>
         <Field
-          label="CADT email"
+          label="Email address"
           type="email"
           name="email"
           errorId={shown}
           autoComplete="username"
-          placeholder="LastName.FirstName@student.cadt.edu.kh"
+          placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          hint={role ? `You will be signed up as ${displayName(normalized)} (${role}).` : "Students use @student.cadt.edu.kh, faculty use @cadt.edu.kh."}
+          hint={role ? `You will be signed up as ${displayName(normalized)} (${role}).` : "Enter a valid email address. Non-CADT addresses are student accounts."}
         />
         <PasswordField
           label="Password"

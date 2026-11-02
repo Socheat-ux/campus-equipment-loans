@@ -1,4 +1,4 @@
-// Calls /api/auth/*. Always sends JSON, because the server rejects every other content type.
+// Calls /api/auth/*. The server authenticates with an HttpOnly sid cookie.
 export async function api(path, body) {
   let res;
   try {
@@ -6,6 +6,8 @@ export async function api(path, body) {
       method: body === undefined ? "GET" : "POST",
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      // Keep this explicit so the cookie also works if the API moves to another origin.
+      credentials: "include",
     });
   } catch {
     throw Object.assign(new Error("Cannot reach the server. Check your connection and try again."), { status: 0 });
@@ -14,7 +16,7 @@ export async function api(path, body) {
   if (!res.ok) {
     // A 401 from these three just means "not logged in / wrong password"; anywhere else it means the session ended.
     if (res.status === 401 && !["/login", "/signup", "/me"].includes(path)) window.dispatchEvent(new Event("auth-expired"));
-    throw Object.assign(new Error(data?.error ?? "Something went wrong. Try again."), { status: res.status });
+    throw Object.assign(new Error(data?.error ?? data?.message ?? `The server returned an unexpected response (HTTP ${res.status}).`), { status: res.status });
   }
   return data;
 }

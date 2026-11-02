@@ -30,15 +30,15 @@ export default function Login() {
   }
 
   return (
-    <AuthShell title="Log in to your account" subtitle="Use your CADT email to borrow and return equipment.">
+    <AuthShell title="Log in to your account" subtitle="Use the email address you registered with.">
       <form onSubmit={submit} noValidate>
         <Field
-          label="CADT email"
+          label="Email address"
           type="email"
           name="email"
           errorId={shown}
           autoComplete="username"
-          placeholder="LastName.FirstName@student.cadt.edu.kh"
+          placeholder="you@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />

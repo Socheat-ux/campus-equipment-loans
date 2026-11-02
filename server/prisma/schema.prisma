@@ -1,0 +1,206 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AssetCondition {
+  NEW
+  EXCELLENT
+  GOOD
+  FAIR
+  DAMAGED
+}
+
+enum AssetStatus {
+  AVAILABLE
+  RESERVED
+  BORROWED
+  MAINTENANCE
+  RETIRED
+  LOST
+}
+
+enum BorrowRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum BorrowingStatus {
+  ACTIVE
+  OVERDUE
+  RETURNED
+}
+
+enum NotificationType {
+  BORROW_REQUEST
+  REQUEST_APPROVED
+  REQUEST_REJECTED
+  BORROW_REMINDER
+  OVERDUE
+  RETURN_CONFIRMATION
+}
+
+model User {
+  id               String         @id @default(cuid())
+  name             String
+  email            String         @unique
+  passwordHash     String
+  role             UserRole       @default(STUDENT)
+  phone            String?
+  isActive         Boolean        @default(true)
+  borrowRequests   BorrowRequest[] @relation("Borrower")
+  reviewedRequests BorrowRequest[] @relation("Reviewer")
+  issuedBorrowings Borrowing[]    @relation("Issuer")
+  receivedReturns  ReturnRecord[] @relation("Receiver")
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([role])
+  @@index([isActive])
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  equipment   Equipment[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Equipment {
+  id          String   @id @default(cuid())
+  categoryId  String
+  name        String
+  description String?
+  brand       String?
+  model       String?
+  imageUrl    String?
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  assets      Asset[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([name])
+}
+
+model Asset {
+  id           String         @id @default(cuid())
+  equipmentId  String
+  assetCode    String         @unique
+  qrToken      String         @unique @default(cuid())
+  serialNumber String?        @unique
+  condition    AssetCondition @default(GOOD)
+  status       AssetStatus    @default(AVAILABLE)
+  equipment    Equipment     @relation(fields: [equipmentId], references: [id], onDelete: Restrict)
+  borrowRequests BorrowRequest[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([equipmentId])
+  @@index([status])
+  @@index([condition])
+}
+
+model BorrowRequest {
+  id              String              @id @default(cuid())
+  borrowerId      String
+  assetId         String
+  requestedStart  DateTime
+  requestedEnd    DateTime
+  purpose         String
+  status          BorrowRequestStatus @default(PENDING)
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  borrower        User                @relation("Borrower", fields: [borrowerId], references: [id], onDelete: Restrict)
+  reviewer        User?               @relation("Reviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  asset           Asset               @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  borrowing       Borrowing?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([borrowerId])
+  @@index([assetId])
+  @@index([status])
+  @@index([requestedStart, requestedEnd])
+}
+
+model Borrowing {
+  id          String         @id @default(cuid())
+  requestId   String         @unique
+  issuedBy    String
+  borrowedAt  DateTime       @default(now())
+  dueAt       DateTime
+  returnedAt  DateTime?
+  status      BorrowingStatus @default(ACTIVE)
+  request     BorrowRequest  @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  issuer      User           @relation("Issuer", fields: [issuedBy], references: [id], onDelete: Restrict)
+  returnRecord ReturnRecord?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status])
+  @@index([dueAt])
+  @@index([issuedBy])
+}
+
+model ReturnRecord {
+  id         String         @id @default(cuid())
+  borrowingId String        @unique
+  receivedBy String
+  condition  AssetCondition
+  notes      String?
+  returnedAt DateTime       @default(now())
+  borrowing  Borrowing      @relation(fields: [borrowingId], references: [id], onDelete: Restrict)
+  receiver   User           @relation("Receiver", fields: [receivedBy], references: [id], onDelete: Restrict)
+
+  @@index([receivedBy])
+  @@index([returnedAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

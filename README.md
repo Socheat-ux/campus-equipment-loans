@@ -4,8 +4,8 @@ A web system for borrowing and returning CADT equipment. Students and faculty si
 
 ## Sign in rules
 
-- Students use `LastName.FirstName@student.cadt.edu.kh`, faculty use an address ending in `@cadt.edu.kh`.
-- The role and the full name come from the email. `hong.bonsak@student.cadt.edu.kh` becomes "Hong Bonsak", in Southeast Asian order.
+- Student accounts can use any valid email address; faculty accounts use a name-based address ending in `@cadt.edu.kh`.
+- The role and full name come from the email. A non-CADT address such as `tech@example.com` becomes a Student account named "Tech".
 - Administrators are not created at signup.
 
 ## Run it
