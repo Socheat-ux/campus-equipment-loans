@@ -42,6 +42,9 @@ h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); }
   box-shadow: 0 18px 50px rgba(11, 40, 90, 0.28);
 }
 
+/* The equipment forms have three fields, so they get a slightly wider card on the same layout. */
+.auth-card-wide { max-width: 480px; }
+
 .brand { margin: 0; text-align: center; font-size: 1.9rem; font-weight: 800; letter-spacing: 0.32em; color: var(--navy); }
 .brand-sub { margin: 2px 0 0; text-align: center; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .brand.brand-left { text-align: left; font-size: 1.2rem; letter-spacing: 0.26em; }
@@ -51,7 +54,7 @@ h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); }
 .field { margin-top: 16px; }
 .field label { display: block; margin-bottom: 6px; font-size: 0.875rem; font-weight: 600; }
 
-input {
+input, select {
   width: 100%;
   height: 48px;
   padding: 0 14px;
@@ -61,7 +64,9 @@ input {
   border: 1px solid #8a96aa; /* 3:1 against white, so the field edge is visible */
   border-radius: 12px;
 }
-input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+select { cursor: pointer; }
+input::placeholder { color: var(--muted); }
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
 
 .password-wrap { position: relative; }
 .password-wrap input { padding-right: 68px; }
@@ -74,11 +79,17 @@ input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid 
 .toggle[aria-pressed="true"] { background: #e3edfb; }
 
 .hint { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); }
+.field-error { margin: 6px 0 0; font-size: 0.85rem; font-weight: 600; color: var(--error); }
 .error:focus { outline: none; }
 .error {
   margin: 16px 0 0; padding: 10px 12px; font-size: 0.9rem;
   color: var(--error); background: var(--error-bg); border-radius: 10px;
 }
+.success {
+  margin: 16px 0 0; padding: 10px 12px; font-size: 0.9rem;
+  color: #0f5132; background: #e6f4ea; border-radius: 10px;
+}
+.success a { color: var(--blue); font-weight: 600; }
 
 .btn-primary {
   width: 100%; height: 48px; margin-top: 22px;

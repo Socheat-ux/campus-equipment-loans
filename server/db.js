@@ -21,6 +21,14 @@ export function openDb(path) {
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS equipment (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK (quantity >= 0),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }

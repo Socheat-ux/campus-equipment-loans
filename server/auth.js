@@ -75,6 +75,14 @@ export const requireAuth = (db) => (req, res, next) => {
   return req.user ? next() : res.status(401).json({ error: "Please log in." });
 };
 
+// Use on any route that only administrators may call: router.use(requireAdmin(db)).
+export const requireAdmin = (db) => (req, res, next) => {
+  req.user = sessionUser(db, req);
+  if (!req.user) return res.status(401).json({ error: "Please log in." });
+  if (req.user.role !== "admin") return res.status(403).json({ error: "Administrators only." });
+  next();
+};
+
 // Limiter key for an address: IPv4 and IPv4-mapped IPv6 stay the IPv4 address, other IPv6 is grouped by its /64 (one host or LAN owns a whole /64).
 export function ipKey(ip) {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);

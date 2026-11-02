@@ -29,3 +29,56 @@ export function passwordError(pw) {
   if (!/\p{L}/u.test(pw) || !/\d/.test(pw)) return "Password needs at least one letter and one number.";
   return null;
 }
+
+export const EQUIPMENT_CATEGORIES = [
+  "Laptop",
+  "Projector",
+  "Camera",
+  "Audio",
+  "Networking",
+  "Lab",
+  "Accessories",
+  "Other",
+];
+
+export const EQUIPMENT_NAME_MAX = 100;
+
+export function equipmentNameError(name) {
+  if (typeof name !== "string" || !name.trim()) return "Enter the equipment name.";
+  if (name.trim().length > EQUIPMENT_NAME_MAX) return `Equipment name must be ${EQUIPMENT_NAME_MAX} characters or fewer.`;
+  return null;
+}
+
+export function equipmentCategoryError(category) {
+  return EQUIPMENT_CATEGORIES.includes(category) ? null : "Choose a category.";
+}
+
+export function equipmentQuantityError(quantity) {
+  if (quantity === "" || quantity === null || quantity === undefined) return "Enter a quantity.";
+  if (typeof quantity !== "number" && typeof quantity !== "string") return "Quantity must be a whole number.";
+  const value = Number(quantity);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) return "Quantity must be a whole number.";
+  if (value < 0) return "Quantity must be 0 or more.";
+  if (value > 100000) return "Quantity must be 100,000 or fewer.";
+  return null;
+}
+
+// Shared by the form and the server: returns normalised values plus a message per bad field.
+export function equipmentInput(body) {
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const category = typeof body?.category === "string" ? body.category : "";
+  const quantity = body?.quantity === null || body?.quantity === undefined ? "" : body.quantity;
+
+  const fields = {};
+  const nameError = equipmentNameError(name);
+  const categoryError = equipmentCategoryError(category);
+  const quantityError = equipmentQuantityError(quantity);
+  if (nameError) fields.name = nameError;
+  if (categoryError) fields.category = categoryError;
+  if (quantityError) fields.quantity = quantityError;
+
+  return {
+    fields,
+    value: { name, category, quantity: Number.isInteger(Number(quantity)) ? Number(quantity) : null },
+  };
+}

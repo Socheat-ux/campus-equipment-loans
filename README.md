@@ -22,9 +22,20 @@ Run the tests with `npm test`. For a single-process build, run `npm run build` a
 
 Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. Set `NODE_ENV=production` when deployed. Set `TRUST_PROXY=1` only behind a proxy you control.
 
+## Equipment and administrators
+
+Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`. The API is mounted at `/api/equipment` and every route uses `requireAdmin(db)`, so students and faculty get `403`.
+
+Administrators are not created at signup. Promote an existing account directly in the database:
+
+```
+node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.env.DB_PATH || "data/app.db"); db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); db.close();'
+```
+
 ## Add to it
 
-- Protect an API route with `requireAuth(db)` from `server/auth.js`. It sets `req.user` to `{ id, email, fullName, role }`.
+- Protect an API route with `requireAuth(db)` or `requireAdmin(db)` from `server/auth.js`. Both set `req.user` to `{ id, email, fullName, role }`.
+- Share validation between the form and the server by adding it to `server/rules.js`, as `equipmentInput` does.
 - Mount new routers in `server/app.js`, above the `/api` not-found handler.
 - Start every signed-in page with `<AppHeader />` from `src/pages/Home.jsx`.
 

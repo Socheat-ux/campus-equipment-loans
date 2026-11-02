@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-export function AuthShell({ title, subtitle, children }) {
+export function AuthShell({ title, subtitle, wide = false, children }) {
   return (
     <main className="auth-page">
-      <section className="auth-card">
+      <section className={wide ? "auth-card auth-card-wide" : "auth-card"}>
         <p className="brand">CADT</p>
         <p className="brand-sub">Campus Equipment Loans</p>
         <h1>{title}</h1>
@@ -20,13 +20,34 @@ const describe = (hintId, errorId) => ({
   "aria-invalid": errorId ? true : undefined,
 });
 
-export function Field({ label, hint, errorId, ...inputProps }) {
+export function Field({ label, hint, error, errorId, ...inputProps }) {
   const id = useId();
+  const hintId = hint && `${id}-hint`;
+  const fieldErrorId = error && `${id}-error`;
+  const describedBy = [fieldErrorId, errorId].filter(Boolean).join(" ") || undefined;
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
-      <input id={id} {...describe(hint && `${id}-hint`, errorId)} {...inputProps} />
-      {hint && <p className="hint" id={`${id}-hint`}>{hint}</p>}
+      <input id={id} {...describe(hintId, describedBy)} {...inputProps} />
+      {error && <p className="field-error" id={fieldErrorId}>{error}</p>}
+      {hint && <p className="hint" id={hintId}>{hint}</p>}
+    </div>
+  );
+}
+
+export function SelectField({ label, hint, error, errorId, children, ...selectProps }) {
+  const id = useId();
+  const hintId = hint && `${id}-hint`;
+  const fieldErrorId = error && `${id}-error`;
+  const describedBy = [fieldErrorId, errorId].filter(Boolean).join(" ") || undefined;
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} {...describe(hintId, describedBy)} {...selectProps}>
+        {children}
+      </select>
+      {error && <p className="field-error" id={fieldErrorId}>{error}</p>}
+      {hint && <p className="hint" id={hintId}>{hint}</p>}
     </div>
   );
 }
@@ -61,4 +82,9 @@ export function ErrorText({ id, children }) {
     if (children) ref.current?.focus();
   }, [children]);
   return children ? <p className="error" id={id} ref={ref} tabIndex={-1} role="alert">{children}</p> : null;
+}
+
+// Announced politely after a save without moving focus away from the form.
+export function SuccessText({ id, children }) {
+  return children ? <p className="success" id={id} role="status">{children}</p> : null;
 }
