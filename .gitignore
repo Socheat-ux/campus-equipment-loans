@@ -1,0 +1,7 @@
+# Local dependencies and macOS metadata
+/node_modules/
+/.DS_Store
+
+# Accidental root-level npm files; the application lives in campus-equipment-loans/
+/package.json
+/package-lock.json
