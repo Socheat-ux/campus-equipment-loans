@@ -37,7 +37,7 @@ test("equipment API is administrator-only and validates each field", async (t) =
   db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run(student("keo.bopha"));
 
   assert.equal((await call("GET", "/api/equipment")).status, 401);
-  assert.equal((await call("GET", "/api/equipment", undefined, studentCookie)).status, 403);
+  assert.equal((await call("GET", "/api/equipment", undefined, studentCookie)).status, 200);
 
   const empty = await call("GET", "/api/equipment", undefined, adminCookie);
   assert.equal(empty.status, 200);

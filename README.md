@@ -24,7 +24,7 @@ Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`,
 
 ## Equipment and administrators
 
-Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`. The API is mounted at `/api/equipment` and every route uses `requireAdmin(db)`, so students and faculty get `403`.
+Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`. The dashboard at `/` lists equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` needs a signed-in user, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
 
 Administrators are not created at signup. Promote an existing account directly in the database:
 

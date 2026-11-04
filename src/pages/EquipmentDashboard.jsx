@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createEquipment, listEquipment, updateEquipment } from "../equipment/api.js";
+import { EQUIPMENT_CATEGORIES } from "../../server/rules.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import DashboardLayout from "../layouts/DashboardLayout.jsx";
 import EquipmentDrawer from "../components/equipment/EquipmentDrawer.jsx";
@@ -27,12 +29,16 @@ function StatCard({ Icon, label, value, note }) {
   );
 }
 
-export default function EquipmentDashboard({ initialEquipment = [], user: userProp, onLogout }) {
+// With `initialEquipment` the page runs on that data (design preview); without it, it loads /api/equipment.
+export default function EquipmentDashboard({ initialEquipment, user: userProp, onLogout }) {
+  const preview = initialEquipment !== undefined;
   const { user: sessionUser } = useAuth();
   const user = userProp ?? sessionUser;
   const isAdmin = user?.role === "admin";
 
-  const [items, setItems] = useState(initialEquipment);
+  const [items, setItems] = useState(initialEquipment ?? []);
+  const [loading, setLoading] = useState(!preview);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
@@ -47,15 +53,43 @@ export default function EquipmentDashboard({ initialEquipment = [], user: userPr
     setPage(1);
   }, [search, category, status]);
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      setItems(await listEquipment());
+    } catch (err) {
+      setLoadError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!preview) load();
+  }, [preview, load]);
+
   const categories = useMemo(
-    () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)),
+    () =>
+      [...new Set([...EQUIPMENT_CATEGORIES, ...items.map((item) => item.category)])].sort((a, b) =>
+        a.localeCompare(b),
+      ),
     [items],
   );
 
+  const filtersActive = search.trim() !== "" || category !== "all" || status !== "all";
+  const clearFilters = () => {
+    setSearch("");
+    setCategory("all");
+    setStatus("all");
+  };
+
+  // Every word typed must appear in the item's name or category, so "dell laptop" finds "Dell XPS 13 Laptop".
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return items.filter((item) => {
-      if (term && !item.name.toLowerCase().includes(term)) return false;
+      const haystack = `${item.name} ${item.category}`.toLowerCase();
+      if (!words.every((word) => haystack.includes(word))) return false;
       if (category !== "all" && item.category !== category) return false;
       if (status === "available" && item.quantity <= 0) return false;
       if (status === "out" && item.quantity > 0) return false;
@@ -74,15 +108,16 @@ export default function EquipmentDashboard({ initialEquipment = [], user: userPr
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
   const categoryCount = categories.length;
 
-  function handleSave(values, mode) {
+  // Throws on a server error so the drawer can show it and stay open.
+  async function handleSave(values, mode) {
     if (mode === "edit" && drawer?.item) {
-      setItems((previous) =>
-        previous.map((item) => (item.id === drawer.item.id ? { ...item, ...values } : item)),
-      );
+      const saved = preview ? { ...drawer.item, ...values } : await updateEquipment(drawer.item.id, values);
+      setItems((previous) => previous.map((item) => (item.id === saved.id ? saved : item)));
       setToast({ type: "success", message: "Equipment updated successfully." });
     } else {
       const nextId = items.reduce((max, item) => Math.max(max, item.id), 0) + 1;
-      setItems((previous) => [{ id: nextId, ...values }, ...previous]);
+      const saved = preview ? { id: nextId, ...values } : await createEquipment(values);
+      setItems((previous) => [saved, ...previous]);
       setPage(1);
       setToast({ type: "success", message: `“${values.name}” was added to the catalogue.` });
     }
@@ -174,6 +209,11 @@ export default function EquipmentDashboard({ initialEquipment = [], user: userPr
                 <option value="available">Available</option>
                 <option value="out">Out of stock</option>
               </select>
+              {filtersActive && (
+                <button type="button" className="dash-clear-btn" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              )}
             </div>
           </div>
 
@@ -227,7 +267,16 @@ export default function EquipmentDashboard({ initialEquipment = [], user: userPr
                 {visible.length === 0 && (
                   <tr>
                     <td className="dash-empty" colSpan={isAdmin ? 6 : 5}>
-                      No equipment matches the current search and filters.
+                      {loading
+                        ? "Loading equipment..."
+                        : loadError ? (
+                          <>
+                            {loadError}{" "}
+                            <button type="button" className="dash-clear-btn" onClick={load}>Try again</button>
+                          </>
+                        ) : filtersActive
+                          ? "No equipment matches the current search and filters."
+                          : "No equipment yet."}
                     </td>
                   </tr>
                 )}
@@ -236,8 +285,9 @@ export default function EquipmentDashboard({ initialEquipment = [], user: userPr
           </div>
 
           <div className="dash-panel-foot">
-            <span>
+            <span aria-live="polite">
               Showing {rangeStart}–{rangeEnd} of {filtered.length} records
+              {filtersActive && items.length !== filtered.length ? ` (filtered from ${items.length})` : ""}
             </span>
             {pageCount > 1 && (
               <div className="dash-pagination" aria-label="Pagination">

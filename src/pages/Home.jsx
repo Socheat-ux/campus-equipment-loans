@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { ErrorText } from "../auth/AuthUI.jsx";
 
@@ -46,6 +47,11 @@ export default function Home() {
       <main className="app-main">
         <h1>Welcome, {user.fullName}</h1>
         <p className="subtitle">The equipment catalogue and borrowing requests will appear here.</p>
+        {user.role === "admin" && (
+          <p>
+            <Link to="/equipment">Manage equipment</Link>
+          </p>
+        )}
       </main>
     </>
   );

@@ -322,6 +322,20 @@
   border-radius: 9px;
 }
 
+.dash-clear-btn {
+  height: 40px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--dash-blue, #0b57c4);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.dash-clear-btn:hover { text-decoration: underline; }
+.dash-empty .dash-clear-btn { height: auto; }
+
 .dash-table-wrap { overflow-x: auto; }
 .dash-table { width: 100%; font-size: 0.85rem; border-collapse: collapse; }
 .dash-table th {

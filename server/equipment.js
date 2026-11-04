@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAdmin } from "./auth.js";
+import { requireAdmin, requireAuth } from "./auth.js";
 import { equipmentInput } from "./rules.js";
 
 const selectColumns = "SELECT id, name, category, quantity FROM equipment";
@@ -8,7 +8,9 @@ const asEquipment = (row) => ({ id: row.id, name: row.name, category: row.catego
 export function equipmentRouter(db) {
   const router = Router();
 
-  router.use(requireAdmin(db));
+  // Any signed-in user may read the catalogue; only administrators may change it.
+  router.use(requireAuth(db));
+  router.use((req, res, next) => (req.method === "GET" ? next() : requireAdmin(db)(req, res, next)));
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();

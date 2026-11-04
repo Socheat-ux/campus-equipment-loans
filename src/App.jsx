@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext.jsx";
 import Login from "./pages/Login.jsx";
 import Signup from "./pages/Signup.jsx";
-import Home from "./pages/Home.jsx";
 import EquipmentAdd from "./pages/EquipmentAdd.jsx";
 import EquipmentEdit from "./pages/EquipmentEdit.jsx";
 import EquipmentDashboard from "./pages/EquipmentDashboard.jsx";
@@ -29,7 +28,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Gate guest><Login /></Gate>} />
       <Route path="/signup" element={<Gate guest><Signup /></Gate>} />
-      <Route path="/" element={<Gate><Home /></Gate>} />
+      <Route path="/" element={<Gate><EquipmentDashboard /></Gate>} />
+      <Route path="/equipment" element={<Navigate to="/" replace />} />
       <Route path="/equipment/new" element={<AdminGate><EquipmentAdd /></AdminGate>} />
       <Route path="/equipment/:id/edit" element={<AdminGate><EquipmentEdit /></AdminGate>} />
       {/* Design previews, development only: no login, database, or API needed. */}

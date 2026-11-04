@@ -11,6 +11,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
   const [quantity, setQuantity] = useState(item ? String(item.quantity) : "");
   const [fields, setFields] = useState({});
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const errorId = useId();
   const shown = error ? errorId : undefined;
 
@@ -27,7 +28,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
     };
   }, [onClose]);
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     flushSync(() => {
       setError("");
@@ -36,7 +37,14 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
     const check = equipmentInput({ name, category, quantity });
     setFields(check.fields);
     if (Object.keys(check.fields).length) return setError("Please fix the fields below.");
-    onSave(check.value, mode);
+    setBusy(true);
+    try {
+      await onSave(check.value, mode);
+    } catch (err) {
+      setError(err.message);
+      setFields(err.fields || {});
+      setBusy(false);
+    }
   }
 
   return (
@@ -111,7 +119,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
             <button type="button" className="btn-outline" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary dash-save-btn">
+            <button type="submit" className="btn-primary dash-save-btn" disabled={busy}>
               {editing ? "Save changes" : "Add equipment"}
             </button>
           </div>
