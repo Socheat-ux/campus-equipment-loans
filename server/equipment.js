@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAdmin, requireAuth } from "./auth.js";
+import { requireAdmin } from "./auth.js";
 import { equipmentInput } from "./rules.js";
 
 const selectColumns = "SELECT id, name, category, quantity FROM equipment";
@@ -8,19 +8,12 @@ const asEquipment = (row) => ({ id: row.id, name: row.name, category: row.catego
 export function equipmentRouter(db) {
   const router = Router();
 
-  // Any signed-in user may read the catalogue; only administrators may change it.
-  router.use(requireAuth(db));
-  router.use((req, res, next) => (req.method === "GET" ? next() : requireAdmin(db)(req, res, next)));
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();
   });
-  router.use((req, res, next) =>
-    ["POST", "PUT", "PATCH"].includes(req.method) && !req.is("application/json")
-      ? res.status(415).json({ error: "JSON only." })
-      : next(),
-  );
 
+  // The catalogue is public so visitors can browse it before signing in.
   router.get("/", (req, res) => {
     const equipment = db
       .prepare(`${selectColumns} ORDER BY name COLLATE NOCASE, id`)
@@ -35,6 +28,14 @@ export function equipmentRouter(db) {
     const row = db.prepare(`${selectColumns} WHERE id = ?`).get(id);
     return row ? res.json({ equipment: asEquipment(row) }) : res.status(404).json({ error: "Equipment not found." });
   });
+
+  // Everything below this point may only be changed by administrators.
+  router.use(requireAdmin(db));
+  router.use((req, res, next) =>
+    ["POST", "PUT", "PATCH"].includes(req.method) && !req.is("application/json")
+      ? res.status(415).json({ error: "JSON only." })
+      : next(),
+  );
 
   router.post("/", (req, res) => {
     const { fields, value } = equipmentInput(req.body);

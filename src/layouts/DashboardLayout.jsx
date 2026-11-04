@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import {
   BellIcon,
@@ -42,6 +43,7 @@ const initials = (name = "") =>
 export default function DashboardLayout({ user: userProp, onLogout, children }) {
   const { user: sessionUser, logout } = useAuth();
   const user = userProp ?? sessionUser ?? { fullName: "Admin User", role: "admin" };
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const accountRef = useRef(null);
@@ -64,8 +66,12 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
 
   const handleLogout = () => {
     setMenuOpen(false);
-    if (onLogout) onLogout();
-    else logout().catch(() => {});
+    if (onLogout) {
+      onLogout();
+      return;
+    }
+    navigate("/", { replace: true });
+    logout().catch(() => {});
   };
 
   return (

@@ -30,13 +30,13 @@ async function start(t) {
   return { db, call, signup };
 }
 
-test("equipment API is administrator-only and validates each field", async (t) => {
+test("equipment reads are public, writes are administrator-only, and each field is validated", async (t) => {
   const { db, call, signup } = await start(t);
   const studentCookie = await signup(student("sok.dara"));
   const adminCookie = await signup(student("keo.bopha"));
   db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run(student("keo.bopha"));
 
-  assert.equal((await call("GET", "/api/equipment")).status, 401);
+  assert.equal((await call("GET", "/api/equipment")).status, 200);
   assert.equal((await call("GET", "/api/equipment", undefined, studentCookie)).status, 200);
 
   const empty = await call("GET", "/api/equipment", undefined, adminCookie);

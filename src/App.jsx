@@ -2,12 +2,13 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext.jsx";
 import Login from "./pages/Login.jsx";
 import Signup from "./pages/Signup.jsx";
+import HomePage from "./pages/HomePage.jsx";
 import EquipmentAdd from "./pages/EquipmentAdd.jsx";
 import EquipmentEdit from "./pages/EquipmentEdit.jsx";
 import EquipmentDashboard from "./pages/EquipmentDashboard.jsx";
 import { PREVIEW_EQUIPMENT, PREVIEW_USER } from "./equipment/previewData.js";
 
-// guest pages bounce signed-in users to "/", every other page bounces guests to "/login"
+// guest pages bounce signed-in users to the catalogue, every other page bounces guests to "/login"
 function Gate({ guest = false, children }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="center-note">Loading</p>;
@@ -20,16 +21,17 @@ function AdminGate({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="center-note">Loading</p>;
   if (!user) return <Navigate to="/login" replace />;
-  return user.role === "admin" ? children : <Navigate to="/" replace />;
+  return user.role === "admin" ? children : <Navigate to="/dashboard" replace />;
 }
 
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<Gate guest><Login /></Gate>} />
       <Route path="/signup" element={<Gate guest><Signup /></Gate>} />
-      <Route path="/" element={<Gate><EquipmentDashboard /></Gate>} />
-      <Route path="/equipment" element={<Navigate to="/" replace />} />
+      <Route path="/dashboard" element={<Gate><EquipmentDashboard /></Gate>} />
+      <Route path="/equipment" element={<Navigate to="/dashboard" replace />} />
       <Route path="/equipment/new" element={<AdminGate><EquipmentAdd /></AdminGate>} />
       <Route path="/equipment/:id/edit" element={<AdminGate><EquipmentEdit /></AdminGate>} />
       {/* Design previews, development only: no login, database, or API needed. */}
