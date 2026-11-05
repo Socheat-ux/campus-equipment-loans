@@ -7,6 +7,7 @@ import {
   DashboardIcon,
   EquipmentIcon,
   HistoryIcon,
+  HomeIcon,
   LogoutIcon,
   MenuIcon,
   ReportsIcon,
@@ -17,6 +18,7 @@ import {
 import "../dashboard.css";
 
 const NAV_ITEMS = [
+  { key: "home", label: "Back to Home", Icon: HomeIcon, to: "/" },
   { key: "dashboard", label: "Dashboard", Icon: DashboardIcon },
   { key: "equipment", label: "Equipment", Icon: EquipmentIcon, active: true },
   { key: "requests", label: "Borrow Requests", Icon: RequestsIcon },
@@ -83,14 +85,17 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
         </div>
 
         <nav className="dash-nav" aria-label="Dashboard navigation">
-          {NAV_ITEMS.map(({ key, label, Icon, active }) => (
+          {NAV_ITEMS.map(({ key, label, Icon, active, to }) => (
             <button
               key={key}
               type="button"
               className={`dash-nav-item${active ? " is-active" : ""}`}
-              disabled={!active}
+              disabled={!active && !to}
               aria-current={active ? "page" : undefined}
-              onClick={() => setSidebarOpen(false)}
+              onClick={() => {
+                setSidebarOpen(false);
+                if (to) navigate(to);
+              }}
             >
               <Icon size={19} />
               <span>{label}</span>

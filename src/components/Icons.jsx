@@ -18,6 +18,14 @@ function Icon({ size = 18, children, ...props }) {
   );
 }
 
+export const HomeIcon = (props) => (
+  <Icon {...props}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V21h14V9.5" />
+    <path d="M9.5 21v-6h5v6" />
+  </Icon>
+);
+
 export const DashboardIcon = (props) => (
   <Icon {...props}>
     <rect x="3" y="3" width="7" height="7" rx="1.4" />
