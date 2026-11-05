@@ -177,18 +177,6 @@ export default function HomePage() {
           </label>
         </section>
 
-        <section className="announcement">
-          <div className="announcement-icon">▣</div>
-          <div className="announcement-content">
-            <strong>LIBRARY TECH HUB</strong>
-            <p>
-              Open until 8:00 PM · Fast 1-tap QR pickup upon admin check-out
-              approval.
-            </p>
-          </div>
-          <span className="announcement-arrow">→</span>
-        </section>
-
         <section className="equipment-section">
           <div className="section-heading">
             <div>
