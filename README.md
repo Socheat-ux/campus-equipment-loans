@@ -10,17 +10,22 @@ A web system for borrowing and returning CADT equipment. Students and faculty si
 
 ## Run it
 
-You need Node 22.13 or newer. From the repo root:
+You need Node 22.13 or newer. From the repo root, the first time:
 
 ```
 npm install
-npm run dev:server    # API on http://localhost:3000
-npm run dev           # app on http://localhost:5173
+cp .env.example .env    # optional, the defaults work locally
+npm run seed:test       # test accounts and a few sample items
+npm run dev:all         # API on http://localhost:3000 and app on http://localhost:5173
 ```
+
+Open http://localhost:5173 and sign in with a test account. `npm run dev:all` stops both servers on Ctrl+C. To run them in separate terminals instead, use `npm run dev:server` and `npm run dev`.
 
 Run the tests with `npm test`. For a single-process build, run `npm run build` and then `npm start`.
 
-Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. Set `NODE_ENV=production` when deployed. Set `TRUST_PROXY=1` only behind a proxy you control.
+`npm run seed:test` creates one account per role in `DB_PATH` (default `data/app.db`; the script reads `.env` too), all with the password `testpass123`: `test.student@student.cadt.edu.kh` (student), `test.faculty@cadt.edu.kh` (faculty) and `test.admin@cadt.edu.kh` (administrator). Running it again resets them. It adds sample equipment only when the catalogue is empty. It refuses to run when `NODE_ENV=production`, because the password is public.
+
+Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. The npm scripts read a `.env` file when there is one; variables already set in the shell or on the host win. Set `NODE_ENV=production` when deployed. Set `TRUST_PROXY=1` only behind a proxy you control.
 
 ## Equipment and administrators
 
@@ -37,7 +42,13 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 - Protect an API route with `requireAuth(db)` or `requireAdmin(db)` from `server/auth.js`. Both set `req.user` to `{ id, email, fullName, role }`.
 - Share validation between the form and the server by adding it to `server/rules.js`, as `equipmentInput` does.
 - Mount new routers in `server/app.js`, above the `/api` not-found handler.
-- Start every signed-in page with `<AppHeader />` from `src/pages/Home.jsx`.
+- Wrap signed-in dashboard pages in `DashboardLayout` from `src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `src/App.jsx` inside `<Gate>` (any signed-in user) or `<AdminGate>` (administrators only).
+- Put tests directly in `server/` with a `.test.js` name, so `npm test` finds them.
+- Send a user a notification with `notify(db, { userId, type, message, reason })` from `server/notifications.js`. A rejection needs a `reason`. Call it inside `withTransaction(db, () => { ... })` from `server/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
+
+## Notifications
+
+Signed-in users see a bell in the catalogue header and the dashboard top bar. It checks for new notifications every 30 seconds, shows the unread count, and marks the shown notifications as read when opened. The API is `GET /api/notifications` (the caller's 50 newest, plus the unread count) and `POST /api/notifications/read` with `{ "ids": [1, 2] }`, `{ "all": true }` or `{ "all": true, "upTo": 42 }`. `upTo` (a positive integer) limits "all" to notifications with `id <= upTo`, so the bell can mark everything it has shown without touching a notice that arrived after the last check. Any other body gets a 400, so a typo never marks everything read.
 
 ## Known limits
 

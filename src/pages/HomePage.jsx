@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { listEquipment } from "../equipment/api.js";
+import NotificationBell from "../notifications/NotificationBell.jsx";
 
 const CATEGORY_IMAGES = {
   Laptop: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800",
@@ -104,6 +105,7 @@ export default function HomePage() {
         <div className="header-profile">
           {user ? (
             <>
+              <NotificationBell />
               <span className="header-profile-text">
                 <strong>{user.fullName}</strong>
                 <small>{user.role}</small>
@@ -145,7 +147,7 @@ export default function HomePage() {
           <span className="search-icon">⌕</span>
           <input
             type="text"
-            placeholder="Search laptops, cameras, projectors..."
+            placeholder="Enter equipment name or category"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
