@@ -38,7 +38,7 @@ export default function Login() {
           name="email"
           errorId={shown}
           autoComplete="username"
-          placeholder="LastName.FirstName@student.cadt.edu.kh"
+          placeholder="Enter your CADT email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -47,6 +47,7 @@ export default function Login() {
           name="password"
           errorId={shown}
           autoComplete="current-password"
+          placeholder="Enter your password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />

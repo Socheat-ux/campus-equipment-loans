@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
+import NotificationBell from "../notifications/NotificationBell.jsx";
 import {
-  BellIcon,
   ChevronDownIcon,
   DashboardIcon,
   EquipmentIcon,
@@ -131,10 +131,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
           </button>
           <div className="dash-topbar-spacer" />
 
-          <button type="button" className="dash-icon-btn" aria-label="Notifications">
-            <BellIcon size={20} />
-            <span className="dash-notif-dot" />
-          </button>
+          <NotificationBell />
 
           <div className="dash-account" ref={accountRef}>
             <button
