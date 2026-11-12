@@ -20,7 +20,8 @@ function timeAgo(iso) {
   const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
   for (const [unit, size] of UNITS) {
     const count = Math.floor(seconds / size); // floor, so 59.5 minutes is not "60 minutes ago"
-    if (count >= 1) return relative.format(-count, unit);
+    // Months stop at 11: a month is 30 days, so days 360 to 364 would otherwise read "12 months ago".
+    if (count >= 1) return relative.format(-(unit === "month" ? Math.min(count, 11) : count), unit);
   }
   return "just now";
 }
@@ -59,7 +60,9 @@ function Bell() {
       if (highestId.current !== null && newest > highestId.current) {
         // A trailing no-break space alternates, so identical text still changes the DOM and is read out again.
         flip.current = !flip.current;
-        setAnnouncement(`New notification. ${data.unread} unread.${flip.current ? " " : ""}`);
+        const added = data.notifications.filter((item) => item.id > highestId.current).length;
+        const what = added > 1 ? `${added} new notifications.` : "New notification.";
+        setAnnouncement(`${what} ${data.unread} unread.${flip.current ? " " : ""}`);
       }
       highestId.current = Math.max(highestId.current ?? 0, newest);
     } catch {
@@ -86,10 +89,11 @@ function Bell() {
         buttonRef.current?.focus();
       }
     };
-    document.addEventListener("mousedown", onPointer);
+    // pointerdown, not mousedown: iOS Safari does not fire mouse events for a tap on a non-clickable area.
+    document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
@@ -109,6 +113,8 @@ function Bell() {
       .then((data) => {
         setUnread(data.unread);
         setItems((previous) => previous.map((item) => (ids.includes(item.id) ? { ...item, read: true } : item)));
+        // More unread than the list explains means a notice arrived after the last poll; list it so the badge matches the panel.
+        if (data.unread > (unread > items.length ? 0 : unread - ids.length)) load();
       })
       .catch(() => {}); // they stay unread and the next poll shows the true count
   }

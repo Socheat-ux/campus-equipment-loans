@@ -10,7 +10,7 @@ A web system for borrowing and returning CADT equipment. Students and faculty si
 
 ## Run it
 
-You need Node 22.13 or newer. From the repo root, the first time:
+You need Node 22.16 or newer. From the repo root, the first time:
 
 ```
 npm install
@@ -44,7 +44,7 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 - Mount new routers in `server/app.js`, above the `/api` not-found handler.
 - Wrap signed-in dashboard pages in `DashboardLayout` from `src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `src/App.jsx` inside `<Gate>` (any signed-in user) or `<AdminGate>` (administrators only).
 - Put tests directly in `server/` with a `.test.js` name, so `npm test` finds them.
-- Send a user a notification with `notify(db, { userId, type, message, reason })` from `server/notifications.js`. A rejection needs a `reason`. Call it inside `withTransaction(db, () => { ... })` from `server/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
+- Send a user a notification with `notify(db, { userId, type, message, reason })` from `server/notifications.js`. A rejection needs a `reason`; a `reason` passed with an approval is ignored. The `message` can be up to 300 characters (`MESSAGE_MAX`) and the `reason` up to 500 (`REASON_MAX`). A too-long or empty `message` or `reason` makes `notify` throw, so the caller should check the administrator's reason first and answer 400. Call it inside `withTransaction(db, () => { ... })` from `server/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
 
 ## Notifications
 
