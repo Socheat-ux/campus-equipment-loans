@@ -18,8 +18,9 @@ function Gate({ children }) {
 }
 
 // Pages for some roles only: guests go to the login page, other roles see "not allowed".
+// `page` names the page in that message, for example "The equipment dashboard".
 // The browser check only decides what to show; the API enforces the same rule with requireRole.
-function RoleGate({ roles, children }) {
+function RoleGate({ roles, page, children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <p className="center-note">Loading</p>;
@@ -27,7 +28,7 @@ function RoleGate({ roles, children }) {
   // Remember the page, so signing in leads straight back to it.
   if (result === "login") return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   // Keyed by path, so moving between two blocked pages remounts it and announces the new page again.
-  return result === "ok" ? children : <NotAllowedPage key={location.pathname} roles={roles} />;
+  return result === "ok" ? children : <NotAllowedPage key={location.pathname} roles={roles} page={page} />;
 }
 
 export default function App() {
@@ -36,10 +37,10 @@ export default function App() {
       <Route path="/" element={<HomePage />} />
       <Route path="/login" element={<Gate><Login /></Gate>} />
       <Route path="/signup" element={<Gate><Signup /></Gate>} />
-      <Route path="/dashboard" element={<RoleGate roles={["admin"]}><EquipmentDashboard /></RoleGate>} />
+      <Route path="/dashboard" element={<RoleGate roles={["admin"]} page="The equipment dashboard"><EquipmentDashboard /></RoleGate>} />
       <Route path="/equipment" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/equipment/new" element={<RoleGate roles={["admin"]}><EquipmentAdd /></RoleGate>} />
-      <Route path="/equipment/:id/edit" element={<RoleGate roles={["admin"]}><EquipmentEdit /></RoleGate>} />
+      <Route path="/equipment/new" element={<RoleGate roles={["admin"]} page="Adding equipment"><EquipmentAdd /></RoleGate>} />
+      <Route path="/equipment/:id/edit" element={<RoleGate roles={["admin"]} page="Editing equipment"><EquipmentEdit /></RoleGate>} />
       {/* Design previews, development only: no login, database, or API needed. */}
       {import.meta.env.DEV && <Route path="/preview/equipment/new" element={<EquipmentAdd preview />} />}
       {import.meta.env.DEV && <Route path="/preview/equipment/edit" element={<EquipmentEdit preview />} />}
