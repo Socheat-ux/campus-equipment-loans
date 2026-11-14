@@ -246,9 +246,12 @@ test("Sign in as someone else logs out first, then goes to /login remembering th
   assert.ok(button, "a button is shown");
   assert.equal(button.props.type, "button");
   assert.deepEqual([button.props.children].flat().join(""), "Sign in as someone else");
+  assert.equal(button.props.disabled, false, "enabled until clicked");
   await button.props.onClick();
   assert.deepEqual(order, ["logout"]);
-  assert.deepEqual(globalThis.__T.went, [["/login", { replace: true, state: { from: "/dashboard?tab=2#top" } }]]);
+  assert.deepEqual(globalThis.__T.went, [
+    ["/login", { replace: true, state: { from: "/dashboard?tab=2#top", notice: "You signed out. Sign in with an account for administrators to continue." } }],
+  ]);
 
   const bad = mount(page, "faculty", async () => {
     throw new Error("Cannot reach the server.");
@@ -256,7 +259,9 @@ test("Sign in as someone else logs out first, then goes to /login remembering th
   const retry = bad.children.flatMap((n) => [n, ...[n?.props?.children].flat()]).find((n) => n?.type === "button");
   await retry.props.onClick();
   assert.deepEqual(globalThis.__T.went, [], "no navigation when logout failed");
-  assert.deepEqual(globalThis.__T.log.map(([, value]) => value), ["", "Cannot reach the server."], "the error is shown");
+  // slot 0 is the error text, slot 1 the busy flag: busy turns off again when logout fails
+  assert.deepEqual(globalThis.__T.log.filter(([slot]) => slot === 0).map(([, value]) => value), ["", "Cannot reach the server."], "the error is shown");
+  assert.deepEqual(globalThis.__T.log.filter(([slot]) => slot === 1).map(([, value]) => value), [true, false], "the button is usable again");
 });
 
 // ---------- step 6: DashboardLayout never invents an administrator ----------

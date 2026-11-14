@@ -2,13 +2,16 @@ import { useId, useState } from "react";
 import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
-import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
+import { AuthShell, Field, PasswordField, ErrorText, SuccessText } from "../auth/AuthUI.jsx";
 import { safeReturnPath } from "../auth/access.js";
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const from = useLocation().state?.from;
+  const { state } = useLocation();
+  const from = state?.from;
+  // Set by the not-allowed page after "Sign in as someone else".
+  const notice = typeof state?.notice === "string" ? state.notice : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -33,6 +36,7 @@ export default function Login() {
 
   return (
     <AuthShell title="Log in to your account" subtitle="Use your CADT email to borrow and return equipment.">
+      <SuccessText>{notice}</SuccessText>
       <form onSubmit={submit} noValidate>
         <Field
           label="CADT email"

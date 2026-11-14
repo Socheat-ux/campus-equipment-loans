@@ -105,7 +105,7 @@ const router = (from) => `export const Link = "Link";
   export const useLocation = () => ({ state: ${JSON.stringify(from === undefined ? null : { from })} });`;
 const authFakes = {
   "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
-  "AuthUI[.]jsx$": `export const AuthShell = "AuthShell", Field = "Field", PasswordField = "PasswordField", ErrorText = "ErrorText";`,
+  "AuthUI[.]jsx$": `export const AuthShell = "AuthShell", Field = "Field", PasswordField = "PasswordField", ErrorText = "ErrorText", SuccessText = "SuccessText";`,
   "^react-dom$": "export const flushSync = (f) => f();",
 };
 

@@ -187,7 +187,7 @@ async function loginTarget(from) {
         export const useLocation = () => ({ state: globalThis.__L.routerState });
         export const useNavigate = () => (to, opts) => globalThis.__L.went.push(to);`,
       auth: "export const useAuth = () => ({ login: async () => {} });",
-      ui: "export const AuthShell = () => null, Field = () => null, PasswordField = () => null, ErrorText = () => null;",
+      ui: "export const AuthShell = () => null, Field = () => null, PasswordField = () => null, ErrorText = () => null, SuccessText = () => null;",
     };
     const result = await build({
       entryPoints: [join(ROOT, "src/pages/Login.jsx")],

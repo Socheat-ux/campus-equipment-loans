@@ -11,6 +11,7 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
   const { pathname, search, hash } = useLocation();
   const headingRef = useRef(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   // This page replaces the one the user asked for, so tell screen readers: move focus to the heading and retitle the tab.
   useEffect(() => {
@@ -24,10 +25,14 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
 
   async function switchUser() {
     setError("");
+    setBusy(true);
     try {
       await logout();
-      navigate("/login", { replace: true, state: { from: pathname + search + hash } });
+      // The login page shows this, so the user knows the sign-out was on purpose and what to do next.
+      const notice = `You signed out. Sign in with an account for ${rolesLabel(roles)} to continue.`;
+      navigate("/login", { replace: true, state: { from: pathname + search + hash, notice } });
     } catch (err) {
+      setBusy(false);
       setError(err.message);
     }
   }
@@ -41,8 +46,8 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
       <Link className="btn-primary" to="/">
         Back to the Catalog
       </Link>
-      <button className="btn-secondary" type="button" onClick={switchUser}>
-        Sign in as someone else
+      <button className="btn-secondary" type="button" onClick={switchUser} disabled={busy}>
+        {busy ? "Signing out…" : "Sign in as someone else"}
       </button>
       <ErrorText>{error}</ErrorText>
     </AuthShell>
