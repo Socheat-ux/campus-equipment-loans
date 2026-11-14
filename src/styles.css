@@ -49,7 +49,7 @@ h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); text-wrap: balan
 .brand-sub { margin: 2px 0 0; text-align: center; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .brand.brand-left { text-align: left; font-size: 1.2rem; letter-spacing: 0.26em; }
 .brand-sub.brand-left { text-align: left; font-size: 0.8rem; letter-spacing: 0.08em; }
-.subtitle { margin: 0 0 8px; color: var(--muted); line-height: 1.45; }
+.subtitle { margin: 0 0 8px; color: var(--muted); line-height: 1.45; text-wrap: pretty; }
 
 .field { margin-top: 16px; }
 .field label { display: block; margin-bottom: 6px; font-size: 0.875rem; font-weight: 600; }
@@ -90,6 +90,11 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
   color: #0f5132; background: #e6f4ea; border-radius: 10px;
 }
 .success a { color: var(--blue); font-weight: 600; }
+/* Neutral information, such as why the user was signed out: not an error, not a success. */
+.notice {
+  margin: 16px 0 0; padding: 10px 12px; font-size: 0.9rem;
+  color: var(--text); background: #f1f5fb; border: 1px solid var(--line); border-radius: 10px;
+}
 
 .btn-primary {
   width: 100%; height: 48px; margin-top: 22px;
