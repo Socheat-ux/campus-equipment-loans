@@ -99,7 +99,7 @@ export default function HomePage() {
           <Link to="/" className="active">
             Catalog
           </Link>
-          {user && <Link to="/dashboard">Dashboard</Link>}
+          {user?.role === "admin" && <Link to="/dashboard">Dashboard</Link>}
         </nav>
 
         <div className="header-profile">
