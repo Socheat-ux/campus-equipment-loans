@@ -59,7 +59,7 @@ export default function Login() {
         </button>
       </form>
       <p className="switch">
-        New here? <Link to="/signup">Create an account</Link>
+        New here? <Link to="/signup" state={{ from }}>Create an account</Link>
       </p>
     </AuthShell>
   );

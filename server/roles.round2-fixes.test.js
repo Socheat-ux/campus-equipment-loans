@@ -97,3 +97,37 @@ test("App: the not-allowed page is keyed by pathname, so two blocked pages do no
   assert.equal(dashboard.key, "/dashboard");
   assert.notEqual(dashboard.key, add.key, "same key on two blocked pages: React would reuse the old one and skip the announcement");
 });
+
+// ---------- step 6: sign-up keeps the remembered page, like log-in ----------
+
+const router = (from) => `export const Link = "Link";
+  export const useNavigate = () => globalThis.__T.navigate;
+  export const useLocation = () => ({ state: ${JSON.stringify(from === undefined ? null : { from })} });`;
+const authFakes = {
+  "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
+  "AuthUI[.]jsx$": `export const AuthShell = "AuthShell", Field = "Field", PasswordField = "PasswordField", ErrorText = "ErrorText";`,
+  "^react-dom$": "export const flushSync = (f) => f();",
+};
+
+test("login page: the 'Create an account' link carries the remembered page", async () => {
+  const login = await load("src/pages/Login.jsx", { ...authFakes, "^react-router-dom$": router("/dashboard") });
+  fresh({ auth: {}, navigate() {} });
+  const link = [...walk(login.default())].find((n) => n.type === "Link" && n.props.to === "/signup");
+  assert.deepEqual(link.props.state, { from: "/dashboard" });
+});
+
+test("signup returns to the remembered page after sign-up, and to '/' when it is missing or leaves the app", async () => {
+  for (const [from, expected] of [["/equipment/new?x=1", "/equipment/new?x=1"], [undefined, "/"], ["//evil.example", "/"], ["/\\evil.example", "/"]]) {
+    const signup = await load("src/pages/Signup.jsx", { ...authFakes, "^react-router-dom$": router(from) });
+    const calls = [];
+    // useState slots: email, password, confirm
+    fresh({
+      auth: { signup: async () => {} },
+      navigate: (...args) => calls.push(args),
+      init: ["sok.dara@student.cadt.edu.kh", "goodpass1", "goodpass1"],
+    });
+    const form = [...walk(signup.default())].find((n) => n.type === "form");
+    await form.props.onSubmit({ preventDefault() {} });
+    assert.deepEqual(calls, [[expected, { replace: true }]], `from ${from}`);
+  }
+});
