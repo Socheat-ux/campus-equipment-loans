@@ -26,7 +26,8 @@ function RoleGate({ roles, children }) {
   const result = access(user, roles);
   // Remember the page, so signing in leads straight back to it.
   if (result === "login") return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
-  return result === "ok" ? children : <NotAllowedPage roles={roles} />;
+  // Keyed by path, so moving between two blocked pages remounts it and announces the new page again.
+  return result === "ok" ? children : <NotAllowedPage key={location.pathname} roles={roles} />;
 }
 
 export default function App() {

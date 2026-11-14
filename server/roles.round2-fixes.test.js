@@ -20,7 +20,7 @@ async function load(file, fakes = {}) {
       export const useMemo = (f) => f();
       export const useState = (v) => { const slot = globalThis.__T.slot++; return [globalThis.__T.init?.[slot] ?? v, () => {}]; };
       export const useEffect = () => {};`,
-    "fake/jsx-runtime": `export const jsx = (type, props) => ({ type, props }); export const jsxs = jsx; export const Fragment = "f";`,
+    "fake/jsx-runtime": `export const jsx = (type, props, key) => ({ type, props, key }); export const jsxs = jsx; export const Fragment = "f";`,
   };
   const result = await build({
     entryPoints: [join(ROOT, file)],
@@ -70,4 +70,30 @@ test("home page shows 'Administrator' / 'Faculty' / 'Student', never the raw rol
     const small = [...walk(home.default())].find((n) => n.type === "small");
     assert.equal(small.props.children, shown);
   }
+});
+
+// ---------- step 5: each blocked page gets a fresh "not allowed" page ----------
+
+test("App: the not-allowed page is keyed by pathname, so two blocked pages do not share one instance", async () => {
+  const app = await load("src/App.jsx", {
+    "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
+    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard)[.]jsx$": `export default "Page";`,
+    "pages/NotAllowedPage[.]jsx$": `export default "NotAllowedPage";`,
+    "equipment/previewData[.]js$": "export const PREVIEW_EQUIPMENT = [], PREVIEW_USER = {};",
+    "^react-router-dom$": `export const Routes = "Routes", Route = "Route", Navigate = "Navigate";
+      export const useLocation = () => globalThis.__T.location;`,
+  });
+  const gate = (path) => {
+    const route = [...walk(app.default())].find((n) => n.type === "Route" && n.props.path === path);
+    return route.props.element.type(route.props.element.props); // RoleGate: render it by hand
+  };
+  const blocked = (path) => {
+    fresh({ auth: { user: { role: "student" }, loading: false }, location: { pathname: path, search: "", hash: "" } });
+    return gate(path);
+  };
+  const dashboard = blocked("/dashboard");
+  const add = blocked("/equipment/new");
+  assert.equal(dashboard.type, "NotAllowedPage");
+  assert.equal(dashboard.key, "/dashboard");
+  assert.notEqual(dashboard.key, add.key, "same key on two blocked pages: React would reuse the old one and skip the announcement");
 });
