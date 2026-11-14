@@ -1,12 +1,13 @@
 import { useId, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const from = useLocation().state?.from;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,7 +22,8 @@ export default function Login() {
     setBusy(true);
     try {
       await login({ email: email.trim(), password });
-      navigate("/", { replace: true });
+      // Only paths inside this app, never "//other.site".
+      navigate(typeof from === "string" && from.startsWith("/") && !from.startsWith("//") ? from : "/", { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
