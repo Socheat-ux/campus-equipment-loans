@@ -154,3 +154,6 @@ vite.config.ts.timestamp-*
 
 # Local SQLite database
 data/
+
+# Impeccable design tool: local critiques and live-server state
+.impeccable/
