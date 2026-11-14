@@ -10,12 +10,11 @@ import { PREVIEW_EQUIPMENT, PREVIEW_USER } from "./equipment/previewData.js";
 import NotAllowedPage from "./pages/NotAllowedPage.jsx";
 import { access } from "./auth/access.js";
 
-// guest pages bounce signed-in users to the catalogue, every other page bounces guests to "/login"
-function Gate({ guest = false, children }) {
+// Guest-only pages (log in, sign up) bounce signed-in users to the catalogue.
+function Gate({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="center-note">Loading</p>;
-  if (guest) return user ? <Navigate to="/" replace /> : children;
-  return user ? children : <Navigate to="/login" replace />;
+  return user ? <Navigate to="/" replace /> : children;
 }
 
 // Pages for some roles only: guests go to the login page, other roles see "not allowed".
@@ -26,7 +25,7 @@ function RoleGate({ roles, children }) {
   if (loading) return <p className="center-note">Loading</p>;
   const result = access(user, roles);
   // Remember the page, so signing in leads straight back to it.
-  if (result === "login") return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (result === "login") return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   return result === "ok" ? children : <NotAllowedPage roles={roles} />;
 }
 
@@ -34,8 +33,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
-      <Route path="/login" element={<Gate guest><Login /></Gate>} />
-      <Route path="/signup" element={<Gate guest><Signup /></Gate>} />
+      <Route path="/login" element={<Gate><Login /></Gate>} />
+      <Route path="/signup" element={<Gate><Signup /></Gate>} />
       <Route path="/dashboard" element={<RoleGate roles={["admin"]}><EquipmentDashboard /></RoleGate>} />
       <Route path="/equipment" element={<Navigate to="/dashboard" replace />} />
       <Route path="/equipment/new" element={<RoleGate roles={["admin"]}><EquipmentAdd /></RoleGate>} />

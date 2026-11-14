@@ -101,3 +101,82 @@ test("AuthContext: auth-changed reloads /me, auth-expired signs out, and a faile
   window.dispatchEvent(new Event("auth-changed"));
   assert.equal(state.calls.length, calls, "the listener is removed on unmount");
 });
+
+// ---------- real App.jsx, rendered with react-dom/server ----------
+
+// Same idea as roles.round1.test.js: the real App is rendered in a MemoryRouter, with a fake auth context and a
+// <Navigate> that prints where it would go. NotAllowedPage and other pages run for real.
+let appModule;
+async function renderApp(path, auth) {
+  if (!appModule) {
+    const realRouter = join(ROOT, "node_modules/react-router-dom/dist/index.js").replaceAll("\\", "/");
+    const virtual = {
+      entry: `import { renderToString } from "react-dom/server.browser";
+        import { jsx } from "react/jsx-runtime";
+        import { MemoryRouter } from "react-router-dom";
+        import App from "./src/App.jsx";
+        export const render = (path, auth) => {
+          globalThis.__auth = auth;
+          return renderToString(jsx(MemoryRouter, { initialEntries: [path], children: jsx(App, {}) }));
+        };`,
+      auth: "export const useAuth = () => globalThis.__auth;",
+      router: `export * from "${realRouter}";
+        import { jsx } from "react/jsx-runtime";
+        export function Navigate({ to, state }) {
+          return jsx("x-nav", { "data-to": String(to), "data-state": JSON.stringify(state ?? null) });
+        }`,
+    };
+    const result = await build({
+      entryPoints: ["entry"],
+      bundle: true,
+      write: false,
+      format: "esm",
+      platform: "node",
+      jsx: "automatic",
+      logLevel: "silent",
+      loader: { ".css": "empty" },
+      define: { "import.meta.env.DEV": "false", "process.env.NODE_ENV": '"production"' },
+      plugins: [
+        {
+          name: "fakes",
+          setup(b) {
+            b.onResolve({ filter: /^entry$/ }, () => ({ path: "entry", namespace: "v" }));
+            b.onResolve({ filter: /AuthContext\.jsx$/ }, () => ({ path: "auth", namespace: "v" }));
+            b.onResolve({ filter: /^react-router-dom$/ }, () => ({ path: "router", namespace: "v" }));
+            b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js", resolveDir: ROOT }));
+          },
+        },
+      ],
+    });
+    appModule = await import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
+  }
+  return appModule.render(path, auth);
+}
+
+const decode = (s) => s.replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+function navOf(html) {
+  const m = /<x-nav data-to="([^"]*)" data-state="([^"]*)"/.exec(html);
+  return m && { to: decode(m[1]), state: JSON.parse(decode(m[2])) };
+}
+const USER = { id: 1, fullName: "Sok Dara", email: "sok.dara@student.cadt.edu.kh", role: "student" };
+const session = (user, extra = {}) => ({ user, loading: false, logout: async () => {}, ...extra });
+
+// ---------- step 3: the login redirect remembers the whole address ----------
+
+test("a signed-out visitor keeps the query string and hash of the admin page they asked for", async () => {
+  for (const path of ["/dashboard?tab=2#top", "/equipment/7/edit?x=1", "/equipment/new#form"]) {
+    const nav = navOf(await renderApp(path, session(null)));
+    assert.equal(nav.to, "/login", path);
+    assert.equal(nav.state.from, path);
+  }
+});
+
+test("log in and sign up still bounce signed-in users home and show guests the form", async () => {
+  for (const path of ["/login", "/signup"]) {
+    assert.equal(navOf(await renderApp(path, session(USER)))?.to, "/", `${path} signed in`);
+    const guestHtml = await renderApp(path, session(null));
+    assert.equal(navOf(guestHtml), null, `${path} guest`);
+    assert.match(guestHtml, /<form/);
+    assert.match(await renderApp(path, session(null, { loading: true })), /Loading/);
+  }
+});
