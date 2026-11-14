@@ -46,9 +46,12 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
       <Link className="btn-primary" to="/">
         Back to the Catalog
       </Link>
-      <button className="btn-secondary" type="button" onClick={switchUser} disabled={busy}>
-        {busy ? "Signing out…" : "Sign in as someone else"}
-      </button>
+      {/* Kept quiet on purpose: most people here are students, and one click signs them out. */}
+      <p className="switch">
+        <button className="link-button" type="button" onClick={switchUser} disabled={busy}>
+          {busy ? "Signing out…" : "Log out and use another account"}
+        </button>
+      </p>
       <ErrorText>{error}</ErrorText>
     </AuthShell>
   );

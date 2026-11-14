@@ -10,7 +10,7 @@ export default function Login() {
   const navigate = useNavigate();
   const { state } = useLocation();
   const from = state?.from;
-  // Set by the not-allowed page after "Sign in as someone else".
+  // Set by the not-allowed page after "Log out and use another account".
   const notice = typeof state?.notice === "string" ? state.notice : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

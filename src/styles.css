@@ -99,14 +99,13 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 .btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
 a.btn-primary { display: grid; place-items: center; text-decoration: none; }
-/* Second action under a primary button: same size, quieter look. */
-.btn-secondary {
-  width: 100%; height: 48px; margin-top: 12px;
-  font: inherit; font-weight: 600; color: var(--blue); background: #fff;
-  border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+/* An action that reads like a link: for secondary choices that should not compete with the main button. */
+.link-button {
+  min-height: 44px; padding: 10px 8px;
+  font: inherit; font-weight: 600; color: var(--blue); background: none;
+  border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
 }
-.btn-secondary:hover:not(:disabled) { border-color: var(--blue); background: #f4f8fe; }
-.btn-secondary:disabled { opacity: 0.6; cursor: default; }
+.link-button:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 
 .switch { margin: 20px 0 0; text-align: center; font-size: 0.95rem; color: var(--muted); }
 .switch a { color: var(--blue); font-weight: 600; }

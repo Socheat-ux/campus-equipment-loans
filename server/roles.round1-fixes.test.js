@@ -238,14 +238,14 @@ test("AuthShell gives its heading the ref and a tabindex of -1 only when asked",
   assert.equal(heading({}).props.tabIndex, undefined);
 });
 
-test("Sign in as someone else logs out first, then goes to /login remembering the page; a failed logout stays put", async () => {
+test("Log out and use another account logs out first, then goes to /login remembering the page; a failed logout stays put", async () => {
   const page = await notAllowed();
   const order = [];
   const ok = mount(page, "faculty", async () => order.push("logout"));
   const button = ok.children.flatMap((n) => [n, ...[n?.props?.children].flat()]).find((n) => n?.type === "button");
   assert.ok(button, "a button is shown");
   assert.equal(button.props.type, "button");
-  assert.deepEqual([button.props.children].flat().join(""), "Sign in as someone else");
+  assert.deepEqual([button.props.children].flat().join(""), "Log out and use another account");
   assert.equal(button.props.disabled, false, "enabled until clicked");
   await button.props.onClick();
   assert.deepEqual(order, ["logout"]);
