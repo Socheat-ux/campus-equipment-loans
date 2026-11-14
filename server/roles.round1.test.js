@@ -108,7 +108,7 @@ test("students and faculty get the not-allowed page with no admin content, for e
       assert.match(html, new RegExp(DENIED), `${who} ${path}`);
       assert.equal(html.match(/<h1/g)?.length, 1, "exactly one h1");
       assert.ok(html.indexOf("<main") < html.indexOf("<h1"), "the heading sits inside the main landmark");
-      assert.match(html, /<a [^>]*href="\/"[^>]*>Back to the Catalog<\/a>/);
+      assert.match(html, /<a [^>]*href="\/"[^>]*>Go to the catalogue<\/a>/);
       assert.match(html, / is for administrators\. You are signed in as (Sok Dara|Keo Bopha)/);
       for (const leak of ["dash-", "<form", "Add equipment", "Save"]) assert.ok(!html.includes(leak), `${who} ${path} shows ${leak}`);
     }
