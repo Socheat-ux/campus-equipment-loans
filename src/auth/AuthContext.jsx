@@ -28,7 +28,8 @@ export function AuthProvider({ children }) {
       const epoch = authEpoch.current;
       api("/me")
         .then((data) => epoch === authEpoch.current && setUser(data.user))
-        .catch(() => {}); // keep what is shown if the check itself fails
+        // 401 means the session is gone; any other failure keeps what is shown
+        .catch((err) => epoch === authEpoch.current && err.status === 401 && setUser(null));
     };
     window.addEventListener("auth-expired", expired);
     window.addEventListener("auth-changed", changed);
