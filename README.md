@@ -39,12 +39,17 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 
 ## Add to it
 
-- Protect an API route with `requireAuth(db)` or `requireAdmin(db)` from `server/auth.js`. Both set `req.user` to `{ id, email, fullName, role }`.
+- Protect an API route with `requireAuth(db)` (any signed-in user) or `requireRole(db, "admin")` (only those roles; `requireRole(db, "student", "faculty")` works too) from `server/auth.js`. Both answer 401 without a session, `requireRole` answers 403 for other roles, and both set `req.user` to `{ id, email, fullName, role }`. A misspelt role name stops the server at startup. `requireAdmin(db)` is the same as `requireRole(db, "admin")`.
+- List every new API route in `ROUTES` in `server/roles.test.js` with who may use it. The test fails until you do, and then checks the route answers 401 and 403 to the right people.
 - Share validation between the form and the server by adding it to `server/rules.js`, as `equipmentInput` does.
 - Mount new routers in `server/app.js`, above the `/api` not-found handler.
-- Wrap signed-in dashboard pages in `DashboardLayout` from `src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `src/App.jsx` inside `<Gate>` (any signed-in user) or `<AdminGate>` (administrators only).
+- Wrap signed-in dashboard pages in `DashboardLayout` from `src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `src/App.jsx` inside `<Gate>` (any signed-in user) or `<RoleGate roles={["admin"]}>` (only those roles). With `RoleGate`, a signed-out visitor goes to the login page and comes back after signing in, and a signed-in user with another role sees a "not allowed" page. The browser check only decides what to show, so protect the matching API routes with `requireRole` too.
 - Put tests directly in `server/` with a `.test.js` name, so `npm test` finds them.
 - Send a user a notification with `notify(db, { userId, type, message, reason })` from `server/notifications.js`. A rejection needs a `reason`; a `reason` passed with an approval is ignored. The `message` can be up to 300 characters (`MESSAGE_MAX`) and the `reason` up to 500 (`REASON_MAX`). A too-long or empty `message` or `reason` makes `notify` throw, so the caller should check the administrator's reason first and answer 400. Call it inside `withTransaction(db, () => { ... })` from `server/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
+
+## Roles
+
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
 
 ## Notifications
 
