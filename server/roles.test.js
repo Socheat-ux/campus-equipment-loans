@@ -24,16 +24,20 @@ const ROUTES = [
   ["POST", "/api/notifications/read", "signed-in"],
 ];
 
-// Counts route handlers inside mounted routers, plus app-level routes under /api. Other app-level routes, such as the
-// built site's catch-all, are ignored.
+// Counts endpoints: route handlers (one per path and method, so array paths count each path) inside mounted routers,
+// plus app-level routes and path-mounted middleware or sub-apps under /api. Not counted: path-less middleware, the
+// final "/api" 404 handler and the built site's catch-all. Express 4 hides a mounted sub-app behind a wrapper, so it counts as one.
 function countRouterRoutes(stack, nested = false) {
   return stack.reduce((sum, layer) => {
     if (layer.route) {
-      const api = typeof layer.route.path === "string" && layer.route.path.startsWith("/api");
-      return sum + (nested || api ? Object.keys(layer.route.methods).length : 0);
+      const paths = [].concat(layer.route.path).filter((p) => nested || (typeof p === "string" && p.startsWith("/api")));
+      return sum + paths.length * Object.keys(layer.route.methods).length;
     }
-    if (layer.handle?.stack) return sum + countRouterRoutes(layer.handle.stack, true);
-    return sum;
+    const inner = layer.handle.stack ?? layer.handle._router?.stack; // a router, or an app with its own router
+    if (inner) return sum + countRouterRoutes(inner, true);
+    // Express writes app.use("/api/x", fn) as the regexp ^\/api\/x...; the 404 handler's is ^\/api\/?... instead.
+    const mounted = !layer.regexp.fast_slash && (nested || /^\^\\\/api\\\/(?!\?)/.test(layer.regexp.source));
+    return sum + (mounted ? 1 : 0);
   }, 0);
 }
 
