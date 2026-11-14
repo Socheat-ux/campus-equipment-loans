@@ -17,6 +17,11 @@ export function safeReturnPath(value) {
   return inApp ? value : "/";
 }
 
+const NAMES = { student: "Student", faculty: "Faculty", admin: "Administrator" };
+
+// One role in plain words, for showing a person's own role.
+export const roleName = (role) => NAMES[role] ?? role;
+
 const LABELS = { student: "students", faculty: "faculty", admin: "administrators" };
 
 // "administrators", "students and faculty", ...: used in the "not allowed" message.
