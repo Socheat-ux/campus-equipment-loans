@@ -21,6 +21,9 @@ body {
 }
 
 h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); text-wrap: balance; }
+.auth-card h1 { margin-bottom: 10px; }
+/* Headings that receive focus from code (so screen readers announce a new page) are not controls: no focus ring. */
+h1[tabindex="-1"]:focus { outline: none; }
 
 .center-note { text-align: center; margin-top: 30vh; color: var(--muted); }
 
