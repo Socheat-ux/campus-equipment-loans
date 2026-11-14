@@ -98,6 +98,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 }
 .btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
+a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 
 .switch { margin: 20px 0 0; text-align: center; font-size: 0.95rem; color: var(--muted); }
 .switch a { color: var(--blue); font-weight: 600; }
