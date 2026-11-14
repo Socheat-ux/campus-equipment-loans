@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
+import { safeReturnPath } from "../auth/access.js";
 
 export default function Login() {
   const { login } = useAuth();
@@ -22,8 +23,7 @@ export default function Login() {
     setBusy(true);
     try {
       await login({ email: email.trim(), password });
-      // Only paths inside this app, never "//other.site".
-      navigate(typeof from === "string" && from.startsWith("/") && !from.startsWith("//") ? from : "/", { replace: true });
+      navigate(safeReturnPath(from), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

@@ -71,7 +71,7 @@ test("AuthContext: auth-changed reloads /me, auth-expired signs out, and a faile
   const state = { me: Promise.resolve({ user: { role: "admin" } }), calls: [] };
   globalThis.__A = state;
   const { AuthProvider } = await load("src/auth/AuthContext.jsx", {
-    "/api\.js$": `export const api = (path) => { globalThis.__A.calls.push(path); return globalThis.__A.me; };`,
+    "/api[.]js$": `export const api = (path) => { globalThis.__A.calls.push(path); return globalThis.__A.me; };`,
   });
   globalThis.__T = { slot: 0, log: [], effects: [] };
   AuthProvider({ children: null });
@@ -179,4 +179,16 @@ test("log in and sign up still bounce signed-in users home and show guests the f
     assert.match(guestHtml, /<form/);
     assert.match(await renderApp(path, session(null, { loading: true })), /Loading/);
   }
+});
+
+// ---------- step 4: safeReturnPath ----------
+
+test("safeReturnPath keeps in-app paths and sends everything else home", async () => {
+  const { safeReturnPath } = await import("../src/auth/access.js");
+  for (const ok of ["/", "/dashboard", "/equipment/7/edit?tab=2#top", "/a//b", "/a%5Cb"]) {
+    assert.equal(safeReturnPath(ok), ok, ok);
+  }
+  const bad = ["//evil.example", "///evil.example", "/\\evil.example", "/\\/evil.example", "/a\\b", "/\t/evil.example", "/\n/evil.example",
+    "/\r/evil.example", "/a\u0000b", "/a\u001fb", "/a\u007fb", "https://evil.example", "javascript:alert(1)", "dashboard", "", " /x", "\\evil"];
+  for (const value of [...bad, undefined, null, 42, {}, ["/x"]]) assert.equal(safeReturnPath(value), "/", JSON.stringify(value));
 });
