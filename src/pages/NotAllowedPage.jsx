@@ -39,7 +39,7 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
       subtitle={`${page} is for ${rolesLabel(roles)}. You are signed in as ${user.fullName} (${roleName(user.role)}).`}
     >
       <Link className="btn-primary" to="/">
-        Back to the catalogue
+        Back to the Catalog
       </Link>
       <ErrorText>{error}</ErrorText>
       <p className="switch">
