@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { randomBytes, createHash, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { roleFor, displayName, passwordError, EMAIL_HELP } from "./rules.js";
+import { roleFor, displayName, passwordError, EMAIL_HELP, ROLES } from "./rules.js";
 
 const scryptAsync = promisify(scrypt);
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -10,7 +10,7 @@ const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 // Parameters travel with the hash, so they can be raised later without breaking old accounts. N=32768, r=8, p=3 is about 32 MiB.
 const SCRYPT = { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 
-async function hashPassword(pw) {
+export async function hashPassword(pw) {
   const salt = randomBytes(16);
   const { N, r, p, maxmem } = SCRYPT;
   const key = await scryptAsync(pw.normalize("NFC"), salt, 64, { N, r, p, maxmem });
@@ -75,13 +75,23 @@ export const requireAuth = (db) => (req, res, next) => {
   return req.user ? next() : res.status(401).json({ error: "Please log in." });
 };
 
+// Use on routes only some roles may call: router.use(requireRole(db, "admin")) or requireRole(db, "student", "faculty").
+// Answers 401 without a session and 403 for any other role. A misspelt role fails at startup, not silently.
+export function requireRole(db, ...roles) {
+  if (!roles.length || roles.some((role) => !ROLES.includes(role))) {
+    throw new TypeError(`requireRole needs one or more of: ${ROLES.join(", ")}.`);
+  }
+  const denied = roles.length === 1 && roles[0] === "admin" ? "Administrators only." : "You do not have access to this.";
+  return (req, res, next) => {
+    req.user = sessionUser(db, req);
+    if (!req.user) return res.status(401).json({ error: "Please log in." });
+    if (!roles.includes(req.user.role)) return res.status(403).json({ error: denied });
+    next();
+  };
+}
+
 // Use on any route that only administrators may call: router.use(requireAdmin(db)).
-export const requireAdmin = (db) => (req, res, next) => {
-  req.user = sessionUser(db, req);
-  if (!req.user) return res.status(401).json({ error: "Please log in." });
-  if (req.user.role !== "admin") return res.status(403).json({ error: "Administrators only." });
-  next();
-};
+export const requireAdmin = (db) => requireRole(db, "admin");
 
 // Limiter key for an address: IPv4 and IPv4-mapped IPv6 stay the IPv4 address, other IPv6 is grouped by its /64 (one host or LAN owns a whole /64).
 export function ipKey(ip) {

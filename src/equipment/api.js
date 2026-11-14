@@ -13,6 +13,8 @@ async function request(path, { method = "GET", body } = {}) {
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401) window.dispatchEvent(new Event("auth-expired"));
+    // The role may have changed since sign-in, so refresh who the user is and let the page guards react.
+    if (res.status === 403) window.dispatchEvent(new Event("auth-changed"));
     throw Object.assign(new Error(data?.error ?? "Something went wrong. Try again."), {
       status: res.status,
       fields: data?.fields,

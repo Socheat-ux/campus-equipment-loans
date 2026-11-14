@@ -1,13 +1,15 @@
 import { useId, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
+import { safeReturnPath } from "../auth/access.js";
 import { roleFor, displayName, passwordError, EMAIL_HELP } from "../../server/rules.js";
 
 export default function Signup() {
   const { signup } = useAuth();
   const navigate = useNavigate();
+  const from = useLocation().state?.from;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -22,12 +24,12 @@ export default function Signup() {
   async function submit(e) {
     e.preventDefault();
     flushSync(() => setError("")); // remount the message so it takes focus even when the text is unchanged
-    const problem = (!role && EMAIL_HELP) || passwordError(password) || (password !== confirm && "Passwords do not match.");
+    const problem = (!role && "That is not a CADT email. Check the format under the email field.") || passwordError(password) || (password !== confirm && "Passwords do not match.");
     if (problem) return setError(problem);
     setBusy(true);
     try {
       await signup({ email: normalized, password });
-      navigate("/", { replace: true });
+      navigate(safeReturnPath(from), { replace: true });
     } catch (err) {
       setError(
         err.status === 409 ? (
@@ -52,10 +54,10 @@ export default function Signup() {
           name="email"
           errorId={shown}
           autoComplete="username"
-          placeholder="LastName.FirstName@student.cadt.edu.kh"
+          placeholder="Enter your CADT email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          hint={role ? `You will be signed up as ${displayName(normalized)} (${role}).` : "Students use @student.cadt.edu.kh, faculty use @cadt.edu.kh."}
+          hint={role ? `You will be signed up as ${displayName(normalized)} (${role}).` : EMAIL_HELP}
         />
         <PasswordField
           label="Password"
@@ -63,6 +65,7 @@ export default function Signup() {
           errorId={shown}
           hint="At least 8 characters, with a letter and a number."
           autoComplete="new-password"
+          placeholder="Enter a password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -71,6 +74,7 @@ export default function Signup() {
           name="confirm"
           errorId={shown}
           autoComplete="new-password"
+          placeholder="Enter the password again"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />

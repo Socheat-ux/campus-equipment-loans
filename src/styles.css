@@ -20,7 +20,10 @@ body {
   background: #f4f7fb;
 }
 
-h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); }
+h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); text-wrap: balance; }
+.auth-card h1 { margin-bottom: 10px; }
+/* Headings that receive focus from code (so screen readers announce a new page) are not controls: no focus ring. */
+h1[tabindex="-1"]:focus { outline: none; }
 
 .center-note { text-align: center; margin-top: 30vh; color: var(--muted); }
 
@@ -49,7 +52,7 @@ h1 { margin: 20px 0 6px; font-size: 1.5rem; color: var(--navy); }
 .brand-sub { margin: 2px 0 0; text-align: center; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .brand.brand-left { text-align: left; font-size: 1.2rem; letter-spacing: 0.26em; }
 .brand-sub.brand-left { text-align: left; font-size: 0.8rem; letter-spacing: 0.08em; }
-.subtitle { margin: 0 0 8px; color: var(--muted); line-height: 1.45; }
+.subtitle { margin: 0 0 8px; color: var(--muted); line-height: 1.45; text-wrap: pretty; }
 
 .field { margin-top: 16px; }
 .field label { display: block; margin-bottom: 6px; font-size: 0.875rem; font-weight: 600; }
@@ -90,6 +93,11 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
   color: #0f5132; background: #e6f4ea; border-radius: 10px;
 }
 .success a { color: var(--blue); font-weight: 600; }
+/* Neutral information, such as why the user was signed out: not an error, not a success. */
+.notice {
+  margin: 16px 0 0; padding: 10px 12px; font-size: 0.9rem;
+  color: var(--text); background: #f1f5fb; border: 1px solid var(--line); border-radius: 10px;
+}
 
 .btn-primary {
   width: 100%; height: 48px; margin-top: 22px;
@@ -98,6 +106,14 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 }
 .btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
 .btn-primary:disabled { opacity: 0.6; cursor: default; }
+a.btn-primary { display: grid; place-items: center; text-decoration: none; }
+/* An action that reads like a link: for secondary choices that should not compete with the main button. */
+.link-button {
+  min-height: 44px; padding: 10px 8px;
+  font: inherit; font-weight: 600; color: var(--blue); background: none;
+  border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.link-button:disabled { color: var(--muted); text-decoration: none; cursor: default; }
 
 .switch { margin: 20px 0 0; text-align: center; font-size: 0.95rem; color: var(--muted); }
 .switch a { color: var(--blue); font-weight: 600; }
@@ -638,5 +654,186 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 
   .announcement {
     padding: 13px;
+  }
+}
+
+/* Notification bell: shared by the catalogue header and the dashboard top bar, so it lives here, not in dashboard.css. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.notif { position: relative; }
+
+.notif-bell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: #64748b;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.notif-bell:hover,
+.notif-bell[aria-expanded="true"] { color: #152d55; background: #f1f6fd; }
+
+.notif-count {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: #c62828;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-sizing: content-box;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 360px;
+  max-height: min(460px, calc(100vh - 120px));
+  max-height: min(460px, calc(100dvh - 120px));
+  display: flex;
+  flex-direction: column;
+  color: #152d55;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #d9e4f4;
+  border-radius: 12px;
+  box-shadow: 0 14px 32px rgba(15, 40, 82, 0.16);
+  animation: notif-in 160ms ease-out;
+}
+@keyframes notif-in {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notif-panel { animation: none; }
+}
+
+.notif-title {
+  margin: 0;
+  padding: 14px 16px 12px;
+  font-size: 15px;
+  color: #152d55;
+  border-bottom: 1px solid #e6edf7;
+}
+
+.notif-list {
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.notif-item {
+  position: relative;
+  padding: 12px 16px 12px 28px;
+  border-bottom: 1px solid #eef3fa;
+}
+.notif-item:last-child { border-bottom: 0; }
+.notif-item.is-new { background: #f5f9ff; }
+.notif-item.is-new::before {
+  content: "";
+  position: absolute;
+  top: 19px;
+  left: 12px;
+  width: 7px;
+  height: 7px;
+  background: #0b55b5;
+  border-radius: 50%;
+}
+
+.notif-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.notif-meta time { font-size: 12px; color: #566176; white-space: nowrap; }
+
+.notif-chip {
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #eef2f7;
+  border-radius: 999px;
+}
+.notif-chip-request_approved { color: #0f6e4d; background: #e3f6ee; }
+.notif-chip-request_rejected { color: #b3261e; background: #fdecea; }
+
+.notif-message { margin: 0; font-size: 14px; line-height: 1.45; color: #1b2433; overflow-wrap: anywhere; white-space: pre-line; }
+
+.notif-reason {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #3b4558;
+  background: #fff;
+  border: 1px solid #e3eaf4;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+.notif-reason span { font-weight: 600; color: #1b2433; }
+
+.notif-note {
+  margin: 0;
+  padding: 24px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #566176;
+  text-align: center;
+}
+.notif-note p { margin: 0 0 10px; }
+
+.notif-retry {
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 600;
+  color: #0b55b5;
+  background: #fff;
+  border: 1px solid #c4d4ec;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.notif-retry:hover { background: #f1f6fd; }
+
+/* On a phone the panel becomes a sheet under the header, so it never runs off the screen. */
+@media (max-width: 640px) {
+  .notif { position: static; }
+  .notif-panel {
+    position: fixed;
+    top: var(--notif-top, 64px);
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100vh - var(--notif-top, 64px) - 12px);
+    max-height: calc(100dvh - var(--notif-top, 64px) - 12px);
   }
 }

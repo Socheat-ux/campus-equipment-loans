@@ -1,12 +1,17 @@
 import { useId, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
+import { safeReturnPath } from "../auth/access.js";
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { state } = useLocation();
+  const from = state?.from;
+  // Set by the not-allowed page after "Log out and use another account".
+  const notice = typeof state?.notice === "string" ? state.notice : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -21,7 +26,7 @@ export default function Login() {
     setBusy(true);
     try {
       await login({ email: email.trim(), password });
-      navigate("/", { replace: true });
+      navigate(safeReturnPath(from), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -31,6 +36,11 @@ export default function Login() {
 
   return (
     <AuthShell title="Log in to your account" subtitle="Use your CADT email to borrow and return equipment.">
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
       <form onSubmit={submit} noValidate>
         <Field
           label="CADT email"
@@ -38,7 +48,7 @@ export default function Login() {
           name="email"
           errorId={shown}
           autoComplete="username"
-          placeholder="LastName.FirstName@student.cadt.edu.kh"
+          placeholder="Enter your CADT email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -47,6 +57,7 @@ export default function Login() {
           name="password"
           errorId={shown}
           autoComplete="current-password"
+          placeholder="Enter your password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -56,7 +67,7 @@ export default function Login() {
         </button>
       </form>
       <p className="switch">
-        New here? <Link to="/signup">Create an account</Link>
+        New here? <Link to="/signup" state={{ from }}>Create an account</Link>
       </p>
     </AuthShell>
   );

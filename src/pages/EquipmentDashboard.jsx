@@ -106,7 +106,8 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
 
   const totalRecords = items.length;
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-  const categoryCount = categories.length;
+  // Only categories that have equipment, not the full list of choices offered in the form.
+  const categoryCount = new Set(items.map((item) => item.category)).size;
 
   // Throws on a server error so the drawer can show it and stay open.
   async function handleSave(values, mode) {
@@ -186,7 +187,7 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search equipment..."
+                  placeholder="Enter name or category"
                   aria-label="Search equipment"
                 />
               </label>

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
+import { roleName } from "../auth/access.js";
+import NotificationBell from "../notifications/NotificationBell.jsx";
 import {
-  BellIcon,
   ChevronDownIcon,
   DashboardIcon,
   EquipmentIcon,
@@ -28,23 +29,17 @@ const NAV_ITEMS = [
   { key: "settings", label: "Settings", Icon: SettingsIcon },
 ];
 
-const roleLabel = (role) => {
-  if (role === "admin") return "Administrator";
-  if (role === "faculty") return "Faculty";
-  return "Student";
-};
-
 const initials = (name = "") =>
   name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
-    .join("") || "AU";
+    .join("") || "?";
 
 export default function DashboardLayout({ user: userProp, onLogout, children }) {
   const { user: sessionUser, logout } = useAuth();
-  const user = userProp ?? sessionUser ?? { fullName: "Admin User", role: "admin" };
+  const user = userProp ?? sessionUser ?? {}; // never invent an administrator
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -107,7 +102,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
           <span className="dash-profile-icon"><UsersIcon size={18} /></span>
           <span className="dash-profile-info">
             <strong>{user.fullName}</strong>
-            <span>{roleLabel(user.role)}</span>
+            <span>{roleName(user.role)}</span>
           </span>
         </div>
       </aside>
@@ -131,10 +126,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
           </button>
           <div className="dash-topbar-spacer" />
 
-          <button type="button" className="dash-icon-btn" aria-label="Notifications">
-            <BellIcon size={20} />
-            <span className="dash-notif-dot" />
-          </button>
+          <NotificationBell />
 
           <div className="dash-account" ref={accountRef}>
             <button
@@ -147,7 +139,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
               <span className="dash-avatar">{initials(user.fullName)}</span>
               <span className="dash-account-text">
                 <strong>{user.fullName}</strong>
-                <span>{roleLabel(user.role)}</span>
+                <span>{roleName(user.role)}</span>
               </span>
               <ChevronDownIcon size={16} />
             </button>
@@ -156,7 +148,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
               <div className="dash-menu" role="menu">
                 <div className="dash-menu-user">
                   <strong>{user.fullName}</strong>
-                  <span>{roleLabel(user.role)}</span>
+                  <span>{roleName(user.role)}</span>
                 </div>
                 <button type="button" role="menuitem" onClick={handleLogout}>
                   <LogoutIcon size={17} />
