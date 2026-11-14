@@ -41,12 +41,10 @@ export default function NotAllowedPage({ roles, page = "This page" }) {
       <Link className="btn-primary" to="/">
         Back to the Catalog
       </Link>
+      <button className="btn-secondary" type="button" onClick={switchUser}>
+        Sign in as someone else
+      </button>
       <ErrorText>{error}</ErrorText>
-      <p className="switch">
-        <button className="btn-outline" type="button" onClick={switchUser}>
-          Sign in as someone else
-        </button>
-      </p>
     </AuthShell>
   );
 }
