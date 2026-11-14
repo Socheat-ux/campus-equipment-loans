@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { listEquipment } from "../equipment/api.js";
 import NotificationBell from "../notifications/NotificationBell.jsx";
+import { roleName } from "../auth/access.js";
 
 const CATEGORY_IMAGES = {
   Laptop: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800",
@@ -108,7 +109,7 @@ export default function HomePage() {
               <NotificationBell />
               <span className="header-profile-text">
                 <strong>{user.fullName}</strong>
-                <small>{user.role}</small>
+                <small>{roleName(user.role)}</small>
               </span>
               <button
                 type="button"
