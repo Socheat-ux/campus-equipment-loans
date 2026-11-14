@@ -3,6 +3,9 @@ const NAME = "[a-z]+(?:['-][a-z]+)*";
 const STUDENT = new RegExp(`^${NAME}\\.${NAME}\\d{0,3}@student\\.cadt\\.edu\\.kh$`, "i");
 const FACULTY = new RegExp(`^${NAME}(?:\\.${NAME})+\\d{0,3}@cadt\\.edu\\.kh$`, "i");
 
+// Every role an account can have. The users table CHECK constraint lists the same three.
+export const ROLES = ["student", "faculty", "admin"];
+
 export const EMAIL_HELP =
   "Use your CADT email: LastName.FirstName@student.cadt.edu.kh for students, or @cadt.edu.kh for faculty.";
 
