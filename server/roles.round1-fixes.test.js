@@ -258,3 +258,62 @@ test("Sign in as someone else logs out first, then goes to /login remembering th
   assert.deepEqual(globalThis.__T.went, [], "no navigation when logout failed");
   assert.deepEqual(globalThis.__T.log.map(([, value]) => value), ["", "Cannot reach the server."], "the error is shown");
 });
+
+// ---------- step 6: DashboardLayout never invents an administrator ----------
+
+let layoutModule;
+async function renderLayout(user, sessionUser) {
+  if (!layoutModule) {
+    const virtual = {
+      entry: `import { renderToString } from "react-dom/server.browser";
+        import { jsx } from "react/jsx-runtime";
+        import { MemoryRouter } from "react-router-dom";
+        import DashboardLayout from "./src/layouts/DashboardLayout.jsx";
+        export const render = (user, sessionUser) => {
+          globalThis.__auth = { user: sessionUser, logout: async () => {} };
+          return renderToString(jsx(MemoryRouter, { children: jsx(DashboardLayout, { user, children: "page body" }) }));
+        };`,
+      auth: "export const useAuth = () => globalThis.__auth;",
+      bell: "export default () => null;",
+    };
+    const result = await build({
+      entryPoints: ["entry"],
+      bundle: true,
+      write: false,
+      format: "esm",
+      platform: "node",
+      jsx: "automatic",
+      logLevel: "silent",
+      loader: { ".css": "empty" },
+      define: { "process.env.NODE_ENV": '"production"' },
+      plugins: [
+        {
+          name: "fakes",
+          setup(b) {
+            b.onResolve({ filter: /^entry$/ }, () => ({ path: "entry", namespace: "v" }));
+            b.onResolve({ filter: /AuthContext\.jsx$/ }, () => ({ path: "auth", namespace: "v" }));
+            b.onResolve({ filter: /NotificationBell\.jsx$/ }, () => ({ path: "bell", namespace: "v" }));
+            b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js", resolveDir: ROOT }));
+          },
+        },
+      ],
+    });
+    layoutModule = await import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
+  }
+  return layoutModule.render(user, sessionUser);
+}
+
+test("DashboardLayout with no user shows no name and no role instead of a fake administrator", async () => {
+  const html = await renderLayout(undefined, null);
+  assert.match(html, /page body/);
+  for (const fake of ["Admin User", "Administrator", "Student", "Faculty", "AU"]) assert.ok(!html.includes(fake), `shows ${fake}`);
+});
+
+test("DashboardLayout still shows a preview user, the session user, and the right role words", async () => {
+  assert.match(await renderLayout({ fullName: "Preview Person", role: "admin" }, null), /Preview Person[\s\S]*Administrator/);
+  const session = await renderLayout(undefined, { fullName: "Keo Bopha", role: "faculty" });
+  assert.match(session, /Keo Bopha/);
+  assert.match(session, /Faculty/);
+  assert.ok(!session.includes("Administrator"));
+  assert.match(await renderLayout({ fullName: "Keo Bopha", role: "faculty" }, { fullName: "Other", role: "admin" }), /Keo Bopha/, "the prop wins");
+});
