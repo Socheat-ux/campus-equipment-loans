@@ -24,10 +24,14 @@ const ROUTES = [
   ["POST", "/api/notifications/read", "signed-in"],
 ];
 
-// Counts route handlers inside mounted routers (the API), ignoring app-level routes such as the built site's catch-all.
+// Counts route handlers inside mounted routers, plus app-level routes under /api. Other app-level routes, such as the
+// built site's catch-all, are ignored.
 function countRouterRoutes(stack, nested = false) {
   return stack.reduce((sum, layer) => {
-    if (layer.route) return sum + (nested ? Object.keys(layer.route.methods).length : 0);
+    if (layer.route) {
+      const api = typeof layer.route.path === "string" && layer.route.path.startsWith("/api");
+      return sum + (nested || api ? Object.keys(layer.route.methods).length : 0);
+    }
     if (layer.handle?.stack) return sum + countRouterRoutes(layer.handle.stack, true);
     return sum;
   }, 0);
@@ -77,6 +81,7 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
       const { status } = await call(method, path, cookie);
       const want = expected[rule][who];
       const label = `${method} ${path} as ${who} gave ${status}`;
+      assert.notEqual(status, 404, label); // a misspelt row would otherwise pass as "in"
       if (want === "in") assert.ok(status !== 401 && status !== 403, label);
       else assert.equal(status, want, label);
     }
