@@ -127,16 +127,6 @@
 .dash-icon-btn:hover,
 .dash-menu-btn:hover { color: var(--dash-text); background: #f1f6fd; }
 .dash-menu-btn { display: none; }
-.dash-notif-dot {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  width: 7px;
-  height: 7px;
-  background: #e5484d;
-  border: 2px solid #fff;
-  border-radius: 50%;
-}
 
 .dash-account { position: relative; }
 .dash-account-btn {

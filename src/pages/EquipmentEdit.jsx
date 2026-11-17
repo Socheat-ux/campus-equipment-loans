@@ -100,6 +100,7 @@ export default function EquipmentEdit({ preview = false }) {
           name="name"
           errorId={shown}
           error={fields.name}
+          placeholder="Enter equipment name"
           hint="Use the name students and staff will search for."
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -128,6 +129,7 @@ export default function EquipmentEdit({ preview = false }) {
           step="1"
           errorId={shown}
           error={fields.quantity}
+          placeholder="Enter quantity"
           hint="Quantity must be 0 or more."
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}

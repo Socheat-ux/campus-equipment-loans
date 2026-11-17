@@ -1,12 +1,7 @@
-<<<<<<< HEAD
 # Local dependencies and macOS metadata
 /node_modules/
 /.DS_Store
 
-# Accidental root-level npm files; the application lives in campus-equipment-loans/
-/package.json
-/package-lock.json
-=======
 # Logs
 logs
 *.log
@@ -159,4 +154,3 @@ vite.config.ts.timestamp-*
 
 # Local SQLite database
 data/
->>>>>>> e523cf64e36c82fd31afaa612ef722df9c855c38

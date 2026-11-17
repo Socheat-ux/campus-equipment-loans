@@ -10,7 +10,7 @@ const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 // Parameters travel with the hash, so they can be raised later without breaking old accounts. N=32768, r=8, p=3 is about 32 MiB.
 const SCRYPT = { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 
-async function hashPassword(pw) {
+export async function hashPassword(pw) {
   const salt = randomBytes(16);
   const { N, r, p, maxmem } = SCRYPT;
   const key = await scryptAsync(pw.normalize("NFC"), salt, 64, { N, r, p, maxmem });
