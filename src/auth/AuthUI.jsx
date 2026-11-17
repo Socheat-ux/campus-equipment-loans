@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-export function AuthShell({ title, subtitle, wide = false, children }) {
+export function AuthShell({ title, subtitle, wide = false, headingRef, children }) {
   return (
     <main className="auth-page">
       <section className={wide ? "auth-card auth-card-wide" : "auth-card"}>
         <p className="brand">CADT</p>
         <p className="brand-sub">Campus Equipment Loans</p>
-        <h1>{title}</h1>
+        <h1 ref={headingRef} tabIndex={headingRef ? -1 : undefined}>{title}</h1>
         <p className="subtitle">{subtitle}</p>
         {children}
       </section>

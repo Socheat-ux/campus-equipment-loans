@@ -1,13 +1,15 @@
 import { useId, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { AuthShell, Field, PasswordField, ErrorText } from "../auth/AuthUI.jsx";
+import { safeReturnPath } from "../auth/access.js";
 import { roleFor, displayName, passwordError, EMAIL_HELP } from "../../server/rules.js";
 
 export default function Signup() {
   const { signup } = useAuth();
   const navigate = useNavigate();
+  const from = useLocation().state?.from;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -27,7 +29,7 @@ export default function Signup() {
     setBusy(true);
     try {
       await signup({ email: normalized, password });
-      navigate("/", { replace: true });
+      navigate(safeReturnPath(from), { replace: true });
     } catch (err) {
       setError(
         err.status === 409 ? (
