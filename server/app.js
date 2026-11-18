@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { authRouter } from "./auth.js";
 import { equipmentRouter } from "./equipment.js";
 import { notificationsRouter } from "./notifications.js";
+import { usersRouter } from "./users.js";
 
 const dist = fileURLToPath(new URL("../dist", import.meta.url));
 
@@ -23,6 +24,7 @@ export function createApp(db, options) {
   app.use("/api/auth", authRouter(db, options));
   app.use("/api/equipment", equipmentRouter(db));
   app.use("/api/notifications", notificationsRouter(db));
+  app.use("/api/users", usersRouter(db));
   // Mount new API routers above this line, so unknown /api paths still answer with JSON.
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found." }));
 

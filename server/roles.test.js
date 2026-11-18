@@ -22,6 +22,8 @@ const ROUTES = [
   ["PUT", "/api/equipment/1", "admin"],
   ["GET", "/api/notifications", "signed-in"],
   ["POST", "/api/notifications/read", "signed-in"],
+  ["GET", "/api/users", "admin"],
+  ["PATCH", "/api/users/1/role", "admin"],
 ];
 
 // Counts endpoints: route handlers (one per path and method, so array paths count each path) inside mounted routers,

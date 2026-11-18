@@ -21,10 +21,10 @@ import "../dashboard.css";
 const NAV_ITEMS = [
   { key: "home", label: "Back to Home", Icon: HomeIcon, to: "/" },
   { key: "dashboard", label: "Dashboard", Icon: DashboardIcon },
-  { key: "equipment", label: "Equipment", Icon: EquipmentIcon, active: true },
+  { key: "equipment", label: "Equipment", Icon: EquipmentIcon },
   { key: "requests", label: "Borrow Requests", Icon: RequestsIcon },
   { key: "history", label: "Loan History", Icon: HistoryIcon },
-  { key: "users", label: "Users", Icon: UsersIcon },
+  { key: "users", label: "Users", Icon: UsersIcon, to: "/users" },
   { key: "reports", label: "Reports", Icon: ReportsIcon },
   { key: "settings", label: "Settings", Icon: SettingsIcon },
 ];
@@ -37,7 +37,7 @@ const initials = (name = "") =>
     .map((part) => part[0].toUpperCase())
     .join("") || "?";
 
-export default function DashboardLayout({ user: userProp, onLogout, children }) {
+export default function DashboardLayout({ user: userProp, onLogout, active = "equipment", children }) {
   const { user: sessionUser, logout } = useAuth();
   const user = userProp ?? sessionUser ?? {}; // never invent an administrator
   const navigate = useNavigate();
@@ -80,13 +80,13 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
         </div>
 
         <nav className="dash-nav" aria-label="Dashboard navigation">
-          {NAV_ITEMS.map(({ key, label, Icon, active, to }) => (
+          {NAV_ITEMS.map(({ key, label, Icon, to }) => (
             <button
               key={key}
               type="button"
-              className={`dash-nav-item${active ? " is-active" : ""}`}
-              disabled={!active && !to}
-              aria-current={active ? "page" : undefined}
+              className={`dash-nav-item${key === active ? " is-active" : ""}`}
+              disabled={key !== active && !to}
+              aria-current={key === active ? "page" : undefined}
               onClick={() => {
                 setSidebarOpen(false);
                 if (to) navigate(to);

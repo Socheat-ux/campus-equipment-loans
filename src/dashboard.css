@@ -341,6 +341,16 @@
   border-bottom: 1px solid var(--dash-border);
 }
 .dash-table td { padding: 13px 22px; vertical-align: middle; border-bottom: 1px solid #edf3fb; }
+.dashboard .dash-table select {
+  min-width: 140px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+  color: var(--dash-text);
+  background: #fbfdff;
+  border-color: var(--dash-border);
+  border-radius: 8px;
+}
 .dash-table tbody tr:hover { background: #fbfdff; }
 .dash-table tbody tr:last-child td { border-bottom: 0; }
 
@@ -371,6 +381,19 @@
   background: #f1f6fd;
   border-radius: 999px;
 }
+/* Read-only role mark: shows what each account is, with no control to change it here. */
+.dash-role {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--dash-blue);
+  background: #e7f0fd;
+  border-radius: 999px;
+}
+.dash-role-student { color: var(--dash-blue); background: #e7f0fd; }
+.dash-role-faculty { color: #2b6b52; background: #e4f6ee; }
+.dash-role-admin { color: #8a4b00; background: #fff1dc; }
 .dash-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.76rem; font-weight: 700; }
 .dash-status .dot { width: 7px; height: 7px; background: currentColor; border-radius: 50%; }
 .dash-status.is-available { color: var(--dash-success); }
