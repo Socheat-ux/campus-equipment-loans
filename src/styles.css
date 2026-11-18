@@ -117,6 +117,22 @@ a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 
 .switch { margin: 20px 0 0; text-align: center; font-size: 0.95rem; color: var(--muted); }
 .switch a { color: var(--blue); font-weight: 600; }
+/* Secondary way out of the sign-in forms, back to the public catalogue. */
+.btn-back-home {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 14px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--blue);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.btn-back-home:hover { background: #f1f5fb; border-color: var(--blue); }
 
 /* signed-in pages */
 .app-header {
@@ -827,6 +843,7 @@ a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 .status-approved { color: #0B5A2E; background: #DDF5E7; }
 .status-rejected { color: #8A1C12; background: #FDE4E1; }
 .status-returned { color: #334155; background: #eef2f7; }
+.status-cancelled { color: #334155; background: #e2e8f0; }
 
 @media (max-width: 950px) {
   .equipment-grid {
@@ -1099,6 +1116,7 @@ a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 .notif-chip-request_submitted { color: #a65a12; background: #fff0dc; }
 .notif-chip-request_approved { color: #0f6e4d; background: #e3f6ee; }
 .notif-chip-request_rejected { color: #b3261e; background: #fdecea; }
+.notif-chip-request_cancelled { color: #334155; background: #eef2f7; }
 
 .notif-message { display: block; margin: 0; font-size: 13px; line-height: 1.45; color: #566176; overflow-wrap: anywhere; white-space: pre-line; }
 

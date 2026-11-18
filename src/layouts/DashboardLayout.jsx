@@ -6,13 +6,10 @@ import {
   ChevronDownIcon,
   DashboardIcon,
   EquipmentIcon,
-  HistoryIcon,
   HomeIcon,
   LogoutIcon,
   MenuIcon,
-  ReportsIcon,
   RequestsIcon,
-  SettingsIcon,
   UsersIcon,
 } from "../components/Icons.jsx";
 import "../dashboard.css";
@@ -21,11 +18,8 @@ const NAV_ITEMS = [
   { key: "home", label: "Back to Home", Icon: HomeIcon, to: "/" },
   { key: "dashboard", label: "Dashboard", Icon: DashboardIcon, to: "/dashboard" },
   { key: "equipment", label: "Equipment", Icon: EquipmentIcon, to: "/dashboard" },
-  { key: "requests", label: "Requests", Icon: RequestsIcon, to: "/admin/requests" },
-  { key: "history", label: "Loan History", Icon: HistoryIcon },
-  { key: "users", label: "Users", Icon: UsersIcon },
-  { key: "reports", label: "Reports", Icon: ReportsIcon },
-  { key: "settings", label: "Settings", Icon: SettingsIcon },
+  { key: "requests", label: "Borrow Requests", Icon: RequestsIcon, to: "/admin/requests" },
+  { key: "users", label: "Users", Icon: UsersIcon, to: "/users" },
 ];
 
 const initials = (name = "") =>

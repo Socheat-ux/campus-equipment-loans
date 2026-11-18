@@ -6,7 +6,7 @@ A web system for borrowing and returning CADT equipment. Students and faculty si
 
 - Students use `LastName.FirstName@student.cadt.edu.kh`, faculty use an address ending in `@cadt.edu.kh`.
 - The role and the full name come from the email. `hong.bonsak@student.cadt.edu.kh` becomes "Hong Bonsak", in Southeast Asian order.
-- Administrators are not created at signup.
+- Administrators are not created at signup. An existing administrator assigns that role later at `/users`.
 
 ## Run it
 
@@ -29,9 +29,15 @@ Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`,
 
 ## Equipment and administrators
 
-Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`. The catalogue at `/` is public, and the dashboard at `/dashboard` lists the same equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` is public so visitors can browse the catalogue, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
+Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`, and view each account's role at `/users`. The catalogue at `/` is public, and the dashboard at `/dashboard` lists the same equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` is public so visitors can browse the catalogue, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
 
-Administrators are not created at signup. Promote an existing account directly in the database:
+## Viewing roles
+
+The Users page at `/users` (also reachable from the Users item in the dashboard sidebar) lists accounts and marks each one with its role. It is read-only: there is no control to switch an account between student, faculty and admin. The page calls `GET /api/users`, which uses `requireAdmin(db)`: guests get `401`, students and faculty get `403`, and the response never includes password hashes.
+
+Student and faculty roles come from the email address at signup. To grant the admin role, promote an account directly in the database as shown below. The `PATCH /api/users/:id/role` endpoint still exists for administrative scripts: it takes a JSON body such as `{ "role": "admin" }`, uses the same admin guard, accepts only `student`, `faculty` and `admin` (`400` otherwise), answers `404` for an unknown id and `415` for a non-JSON write, refuses to demote the last administrator, and takes effect on that user's next request.
+
+Administrators are not created at signup. To create the very first one, promote an existing account directly in the database:
 
 ```
 node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.env.DB_PATH || "data/app.db"); db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); db.close();'
@@ -39,9 +45,9 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 
 ## Borrow requests
 
-Students and faculty start a request from the catalogue button at `/requests/new?equipmentId=<id>`, or from the "My requests" link in the header. The form picks a borrow date from today onwards; the return date is always seven days later, calculated by the shared rules in `server/rules.js`, so a return date sent by the browser is ignored. A new request is `pending` and does not change the item's stock. The caller sees their requests at `/requests` and the submitted request at `/requests/:id/confirmation`.
+Students and faculty start a request from the catalogue button at `/requests/new?equipmentId=<id>`, or from the "My requests" link in the header. The form picks a borrow date from today onwards; the return date is always seven days later, calculated by the shared rules in `server/rules.js`, so a return date sent by the browser is ignored. A new request is `pending` and does not change the item's stock. The caller sees their requests at `/requests` and the submitted request at `/requests/:id/confirmation`. They can cancel a pending request of their own from My requests; the page asks for confirmation before it is cancelled.
 
-The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's requests, `GET /:id` returns one of their own, and `POST /` accepts `{ "equipmentId": 1, "borrowDate": "YYYY-MM-DD", "purpose": "Final year project" }` (`purpose` is optional). Students and faculty can use these routes; signed-out visitors get `401` and administrators get `403`. Submitting saves the request and `request_submitted` notifications for the borrower and every administrator in one transaction. An administrator's bell also backfills notices for older requests that were saved before their account existed, ordered by request date, without creating duplicates. Staff approval, rejection and returns are not wired up yet.
+The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's requests, `GET /:id` returns one of their own, `POST /` accepts `{ "equipmentId": 1, "borrowDate": "YYYY-MM-DD", "purpose": "Final year project" }` (`purpose` is optional), and `POST /:id/cancel` cancels one of their own pending requests. Students and faculty can use these routes; signed-out visitors get `401` and administrators get `403`. Submitting saves the request and `request_submitted` notifications for the borrower and every administrator in one transaction. Cancelling sets the request to `cancelled`, notifies the borrower, and does not change equipment stock because pending requests do not reserve items. Only pending requests can be cancelled; completed, cancelled or otherwise non-pending requests are refused. An administrator's bell also backfills notices for older requests that were saved before their account existed, ordered by request date, without creating duplicates. Staff approval, rejection and returns are not wired up yet.
 
 ## Add to it
 
@@ -55,7 +61,7 @@ The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's request
 
 ## Roles
 
-There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `server/rules.js` is the shared list of allowed values.
 
 ## Notifications
 

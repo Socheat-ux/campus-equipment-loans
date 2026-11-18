@@ -4,12 +4,18 @@ import { BellIcon } from "../components/Icons.jsx";
 import { listNotifications, markAllNotificationsRead, markNotificationRead, markNotificationsRead } from "./api.js";
 
 const POLL_MS = 30_000;
-const REQUEST_TYPES = new Set(["request_submitted", "request_approved", "request_rejected"]);
-const LABELS = { request_submitted: "Submitted", request_approved: "Approved", request_rejected: "Rejected" };
+const REQUEST_TYPES = new Set(["request_submitted", "request_approved", "request_rejected", "request_cancelled"]);
+const LABELS = {
+  request_submitted: "Submitted",
+  request_approved: "Approved",
+  request_rejected: "Rejected",
+  request_cancelled: "Cancelled",
+};
 const TITLES = {
   request_submitted: "Request submitted",
   request_approved: "Request approved",
   request_rejected: "Request rejected",
+  request_cancelled: "Request cancelled",
 };
 const UNITS = [
   ["year", 31_536_000],

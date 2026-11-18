@@ -81,7 +81,7 @@ test("home page shows 'Administrator' / 'Faculty' / 'Student', never the raw rol
 test("App: the not-allowed page is keyed by pathname, so two blocked pages do not share one instance", async () => {
   const app = await load("src/App.jsx", {
     "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
-    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard|AdminBorrowRequests|BorrowRequestNew|BorrowRequestConfirmation|MyRequests)[.]jsx$": `export default "Page";`,
+    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard|AdminBorrowRequests|BorrowRequestNew|BorrowRequestConfirmation|MyRequests|UsersPage)[.]jsx$": `export default "Page";`,
     "pages/NotAllowedPage[.]jsx$": `export default "NotAllowedPage";`,
     "equipment/previewData[.]js$": "export const PREVIEW_EQUIPMENT = [], PREVIEW_USER = {};",
     "^react-router-dom$": `export const Routes = "Routes", Route = "Route", Navigate = "Navigate";
@@ -118,6 +118,16 @@ test("login page: the 'Create an account' link carries the remembered page", asy
   fresh({ auth: {}, navigate() {} });
   const link = [...walk(login.default())].find((n) => n.type === "Link" && n.props.to === "/signup");
   assert.deepEqual(link.props.state, { from: "/dashboard" });
+});
+
+test("login and signup offer a button-style link back to the homepage", async () => {
+  for (const file of ["src/pages/Login.jsx", "src/pages/Signup.jsx"]) {
+    const page = await load(file, { ...authFakes, "^react-router-dom$": router(undefined) });
+    fresh({ auth: {}, navigate() {} });
+    const back = [...walk(page.default())].find((n) => n.type === "Link" && n.props.className === "btn-back-home");
+    assert.ok(back, `${file} renders a back-home link`);
+    assert.equal(back.props.to, "/", `${file} links to the homepage`);
+  }
 });
 
 test("signup returns to the remembered page after sign-up, and to '/' when it is missing or leaves the app", async () => {

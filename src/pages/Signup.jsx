@@ -86,6 +86,7 @@ export default function Signup() {
       <p className="switch">
         Already have an account? <Link to="/login">Log in</Link>
       </p>
+      <Link className="btn-back-home" to="/">← Back to homepage</Link>
     </AuthShell>
   );
 }

@@ -200,6 +200,70 @@ test("a borrower reads only their own request, and cannot choose the return date
   assert.deepEqual(await someoneElse.json(), { error: "Request not found." });
 });
 
+test("a borrower can cancel their own pending request, and it is notified without changing stock", async (t) => {
+  const { db, call, signup, addEquipment } = await start(t);
+  const student = await signup("sok.dara");
+  const equipmentId = addEquipment("Canon DSLR", 2);
+  const borrowDate = addDaysISO(todayISO(), 1);
+
+  const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate, purpose: "Photos" }, student.cookie);
+  assert.equal(created.status, 201);
+  const { request } = await created.json();
+
+  const res = await call("POST", `/api/borrow-requests/${request.id}/cancel`, {}, student.cookie);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.request.status, "cancelled");
+  assert.equal(body.request.id, request.id);
+  assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "cancelled");
+  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 2);
+
+  const notice = db
+    .prepare("SELECT type, message FROM notifications WHERE user_id = ? AND request_id = ? ORDER BY id DESC LIMIT 1")
+    .get(student.id, request.id);
+  assert.equal(notice.type, "request_cancelled");
+  assert.equal(notice.message, "Your request for Canon DSLR was cancelled.");
+});
+
+test("a borrower cannot cancel someone else's request or a non-pending request", async (t) => {
+  const { db, call, signup, addEquipment } = await start(t);
+  const owner = await signup("sok.dara");
+  const other = await signup("keo.bopha");
+  const equipmentId = addEquipment("Projector", 1);
+  const borrowDate = addDaysISO(todayISO(), 1);
+
+  const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate }, owner.cookie);
+  const { request } = await created.json();
+
+  const someoneElse = await call("POST", `/api/borrow-requests/${request.id}/cancel`, {}, other.cookie);
+  assert.equal(someoneElse.status, 404);
+  assert.deepEqual(await someoneElse.json(), { error: "Request not found." });
+
+  for (const status of ["approved", "rejected", "returned", "cancelled"]) {
+    db.prepare("UPDATE borrow_requests SET status = ? WHERE id = ?").run(status, request.id);
+    const res = await call("POST", `/api/borrow-requests/${request.id}/cancel`, {}, owner.cookie);
+    assert.equal(res.status, 409, status);
+    assert.deepEqual(await res.json(), { error: "Only pending requests can be cancelled." });
+  }
+});
+
+test("cancelling requires a signed-in borrower and a JSON body", async (t) => {
+  const { db, call, signup, addEquipment } = await start(t);
+  const student = await signup("sok.dara");
+  const equipmentId = addEquipment("Tripod", 1);
+  const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate: addDaysISO(todayISO(), 1) }, student.cookie);
+  const { request } = await created.json();
+
+  const guest = await call("POST", `/api/borrow-requests/${request.id}/cancel`, {});
+  assert.equal(guest.status, 401);
+  assert.deepEqual(await guest.json(), { error: "Please log in." });
+
+  const wrongType = await call("POST", `/api/borrow-requests/${request.id}/cancel`, undefined, student.cookie);
+  assert.equal(wrongType.status, 415);
+  assert.deepEqual(await wrongType.json(), { error: "JSON only." });
+  assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "pending");
+});
+
 test("bad fields and a non-JSON body are refused before saving anything", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");

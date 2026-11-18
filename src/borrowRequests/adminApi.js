@@ -27,3 +27,5 @@ export const approveBorrowRequest = (id) =>
   request(`/${encodeURIComponent(id)}/approve`, { method: "POST", body: {} }).then((data) => data.request);
 export const rejectBorrowRequest = (id, reason) =>
   request(`/${encodeURIComponent(id)}/reject`, { method: "POST", body: { reason } }).then((data) => data.request);
+export const cancelBorrowRequestAdmin = (id, reason) =>
+  request(`/${encodeURIComponent(id)}/cancel`, { method: "POST", body: reason ? { reason } : {} }).then((data) => data.request);

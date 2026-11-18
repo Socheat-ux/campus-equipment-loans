@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import StudentHeader from "../components/StudentHeader.jsx";
 import StatusBadge from "../borrowRequests/StatusBadge.jsx";
-import { listBorrowRequests } from "../borrowRequests/api.js";
+import { listBorrowRequests, cancelBorrowRequest } from "../borrowRequests/api.js";
 import { formatDate } from "../equipment/cards.js";
 import { ErrorText } from "../auth/AuthUI.jsx";
 import { CheckCircleIcon } from "../components/Icons.jsx";
@@ -13,6 +13,12 @@ export default function MyRequests() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [cancellingId, setCancellingId] = useState(null);
+  const [cancelError, setCancelError] = useState("");
+  const [cancelledName, setCancelledName] = useState("");
+  const [cancelModal, setCancelModal] = useState(null); // { id, equipmentName }
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonError, setCancelReasonError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,6 +31,48 @@ export default function MyRequests() {
       setLoading(false);
     }
   }, []);
+
+  const openCancelModal = (request) => {
+    setCancelModal({ id: request.id, equipmentName: request.equipmentName });
+    setCancelReason("");
+    setCancelReasonError("");
+    setCancelError("");
+  };
+
+  const closeCancelModal = () => {
+    if (cancellingId) return;
+    setCancelModal(null);
+    setCancelReason("");
+    setCancelReasonError("");
+  };
+
+  const onCancelSubmit = async (e) => {
+    e.preventDefault();
+    const reason = cancelReason.trim();
+    if (!reason) {
+      setCancelReasonError("Reason is required.");
+      return;
+    }
+    if (reason.length > 300) {
+      setCancelReasonError("Reason must be 300 characters or fewer.");
+      return;
+    }
+    setCancelReasonError("");
+    setCancelError("");
+    setCancelledName("");
+    setCancellingId(cancelModal.id);
+    try {
+      const updated = await cancelBorrowRequest(cancelModal.id, reason);
+      setRequests((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setCancelledName(updated.equipmentName || cancelModal.equipmentName);
+      setCancelModal(null);
+      setCancelReason("");
+    } catch (err) {
+      setCancelError(err.message || "Could not cancel request.");
+    } finally {
+      setCancellingId(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -50,6 +98,19 @@ export default function MyRequests() {
             <CheckCircleIcon size={20} />
             <span>Request for {submittedName} submitted. Awaiting approval.</span>
           </p>
+        )}
+
+        {cancelledName && (
+          <p className="request-banner" role="status">
+            <CheckCircleIcon size={20} />
+            <span>Request for {cancelledName} cancelled.</span>
+          </p>
+        )}
+
+        {cancelError && (
+          <section className="request-card">
+            <ErrorText>{cancelError}</ErrorText>
+          </section>
         )}
 
         {loading && <p className="request-note">Loading your requests…</p>}
@@ -82,6 +143,7 @@ export default function MyRequests() {
                   <th scope="col">Borrow date</th>
                   <th scope="col">Return by</th>
                   <th scope="col">Status</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,6 +166,20 @@ export default function MyRequests() {
                         <small className="request-status-note">Reason: {request.decisionReason}</small>
                       )}
                     </td>
+                    <td data-label="Action">
+                      {request.status === "pending" ? (
+                        <button
+                          type="button"
+                          className="btn-request-secondary"
+                          onClick={() => openCancelModal(request)}
+                          disabled={cancellingId === request.id}
+                        >
+                          Cancel
+                        </button>
+                      ) : (
+                        <span className="request-note">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -111,6 +187,36 @@ export default function MyRequests() {
           </div>
         )}
       </main>
+
+      {cancelModal && (
+        <div className="request-card" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div className="request-card" style={{ maxWidth: 480, width: "100%", background: "#fff" }}>
+            <h2 style={{ marginTop: 0 }}>Cancel request</h2>
+            <p className="request-note">Provide a reason for cancelling your request for <strong>{cancelModal.equipmentName}</strong>.</p>
+            <form onSubmit={onCancelSubmit}>
+              <label className="field-label" htmlFor="cancel-reason">Reason</label>
+              <textarea
+                id="cancel-reason"
+                className="request-textarea"
+                rows={4}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                maxLength={300}
+                placeholder="Why are you cancelling this request?"
+              />
+              {cancelReasonError && <ErrorText>{cancelReasonError}</ErrorText>}
+              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                <button type="submit" className="btn-request-primary" disabled={cancellingId === cancelModal.id}>
+                  {cancellingId === cancelModal.id ? "Cancelling..." : "Submit cancellation"}
+                </button>
+                <button type="button" className="btn-request-secondary" onClick={closeCancelModal} disabled={cancellingId === cancelModal.id}>
+                  Keep request
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

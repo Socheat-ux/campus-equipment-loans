@@ -102,5 +102,46 @@ export function borrowRequestsRouter(db) {
     res.status(201).json({ request: asRequest(row) });
   });
 
+  router.post("/:id/cancel", (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(404).json({ error: "Request not found." });
+
+    const row = db.prepare(`${selectColumns} WHERE r.id = ? AND r.user_id = ?`).get(id, req.user.id);
+    if (!row) return res.status(404).json({ error: "Request not found." });
+    if (row.status !== "pending") return res.status(409).json({ error: "Only pending requests can be cancelled." });
+
+    try {
+      withTransaction(db, () => {
+        const current = db
+          .prepare("SELECT status FROM borrow_requests WHERE id = ? AND user_id = ?")
+          .get(id, req.user.id);
+        if (!current || current.status !== "pending") {
+          throw Object.assign(new Error("Only pending requests can be cancelled."), { status: 409 });
+        }
+
+        // Pending requests do not reserve stock, so cancelling them does not change equipment availability.
+        const updated = db
+          .prepare("UPDATE borrow_requests SET status = 'cancelled' WHERE id = ? AND user_id = ? AND status = 'pending'")
+          .run(id, req.user.id);
+        if (!updated.changes) {
+          throw Object.assign(new Error("Only pending requests can be cancelled."), { status: 409 });
+        }
+
+        notify(db, {
+          userId: req.user.id,
+          type: "request_cancelled",
+          message: `Your request for ${row.equipment_name} was cancelled.`.slice(0, MESSAGE_MAX),
+          requestId: id,
+        });
+      });
+    } catch (err) {
+      if (err?.status === 409) return res.status(409).json({ error: "Only pending requests can be cancelled." });
+      throw err;
+    }
+
+    const updatedRow = db.prepare(`${selectColumns} WHERE r.id = ? AND r.user_id = ?`).get(id, req.user.id);
+    return res.json({ request: asRequest(updatedRow) });
+  });
+
   return router;
 }

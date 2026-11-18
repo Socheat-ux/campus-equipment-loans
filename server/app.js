@@ -7,6 +7,7 @@ import { equipmentRouter } from "./equipment.js";
 import { borrowRequestsRouter } from "./borrowRequests.js";
 import { adminBorrowRequestsRouter } from "./adminBorrowRequests.js";
 import { notificationsRouter } from "./notifications.js";
+import { usersRouter } from "./users.js";
 
 const dist = fileURLToPath(new URL("../dist", import.meta.url));
 
@@ -27,6 +28,7 @@ export function createApp(db, options) {
   app.use("/api/borrow-requests", borrowRequestsRouter(db));
   app.use("/api/admin/borrow-requests", adminBorrowRequestsRouter(db));
   app.use("/api/notifications", notificationsRouter(db));
+  app.use("/api/users", usersRouter(db));
   // Mount new API routers above this line, so unknown /api paths still answer with JSON.
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found." }));
 

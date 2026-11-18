@@ -4,7 +4,7 @@ import { withTransaction } from "./db.js";
 import { REJECTION_REASON_MAX } from "./rules.js";
 
 // Add new kinds here, for example "due_soon" and "overdue" for the reminder stories.
-export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected"];
+export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected", "request_cancelled"];
 export const MESSAGE_MAX = 300;
 export const REASON_MAX = REJECTION_REASON_MAX;
 export const LIST_LIMIT = 50;

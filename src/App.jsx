@@ -10,6 +10,7 @@ import AdminBorrowRequests from "./pages/AdminBorrowRequests.jsx";
 import BorrowRequestNew from "./pages/BorrowRequestNew.jsx";
 import BorrowRequestConfirmation from "./pages/BorrowRequestConfirmation.jsx";
 import MyRequests from "./pages/MyRequests.jsx";
+import UsersPage from "./pages/UsersPage.jsx";
 import { PREVIEW_EQUIPMENT, PREVIEW_USER } from "./equipment/previewData.js";
 import NotAllowedPage from "./pages/NotAllowedPage.jsx";
 import { access } from "./auth/access.js";
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/equipment" element={<Navigate to="/dashboard" replace />} />
       <Route path="/equipment/new" element={<RoleGate roles={["admin"]} page="Adding equipment"><EquipmentAdd /></RoleGate>} />
       <Route path="/equipment/:id/edit" element={<RoleGate roles={["admin"]} page="Editing equipment"><EquipmentEdit /></RoleGate>} />
+      <Route path="/users" element={<RoleGate roles={["admin"]} page="User management"><UsersPage /></RoleGate>} />
       {/* Design previews, development only: no login, database, or API needed. */}
       {import.meta.env.DEV && <Route path="/preview/equipment/new" element={<EquipmentAdd preview />} />}
       {import.meta.env.DEV && <Route path="/preview/equipment/edit" element={<EquipmentEdit preview />} />}

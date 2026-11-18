@@ -4,7 +4,7 @@ import { withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
 import { rejectionReasonError } from "./rules.js";
 
-const STATUSES = ["pending", "approved", "rejected"];
+const STATUSES = ["pending", "approved", "rejected", "cancelled"];
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.asset_id AS equipment_asset_id,
@@ -131,6 +131,50 @@ export function adminBorrowRequestsRouter(db) {
           type: "request_rejected",
           message: `Request rejected. ${equipment.name}. See the reason in My requests.`,
           reason,
+        });
+      });
+    } catch (err) {
+      return sendConflict(res, err);
+    }
+    return res.json({ request: asAdminRequest(findRequest(id)) });
+  });
+
+  router.post("/:id/cancel", (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: "Request not found." });
+    const request = findRequest(id);
+    if (!request) return res.status(404).json({ error: "Request not found." });
+    if (!["approved", "rejected"].includes(request.status)) {
+      return res.status(409).json({ error: "Only approved or rejected requests can be cancelled by admin." });
+    }
+    const reasonRaw = req.body?.reason;
+    const reason = typeof reasonRaw === "string" ? reasonRaw.trim() : "";
+    if (reasonRaw !== undefined && reasonRaw !== null && reason.length > 300) {
+      return res.status(400).json({ error: "Reason must be 300 characters or fewer.", fields: { reason: "Reason must be 300 characters or fewer." } });
+    }
+
+    try {
+      withTransaction(db, () => {
+        const current = currentRequest(id);
+        if (!current || !["approved", "rejected"].includes(current.status)) {
+          throw conflict("Only approved or rejected requests can be cancelled by admin.");
+        }
+        const decidedAt = new Date().toISOString();
+        if (current.status === "approved") {
+          db.prepare("UPDATE equipment SET quantity = quantity + 1, updated_at = ? WHERE id = ?").run(
+            decidedAt,
+            current.equipment_id,
+          );
+        }
+        db.prepare(
+          "UPDATE borrow_requests SET status = 'cancelled', decided_by = ?, decided_at = ?, decision_reason = ? WHERE id = ?",
+        ).run(req.user.id, decidedAt, reason || null, id);
+        const reasonText = reason ? ` Reason: ${reason}` : "";
+        notify(db, {
+          userId: current.user_id,
+          type: "request_cancelled",
+          message: `Your request for ${request.equipmentName} was cancelled by an administrator.${reasonText}`.slice(0, 500),
+          requestId: id,
         });
       });
     } catch (err) {
