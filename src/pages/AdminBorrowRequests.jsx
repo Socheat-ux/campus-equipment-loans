@@ -6,6 +6,7 @@ import { formatDate } from "../equipment/cards.js";
 import { REJECTION_REASON_MAX } from "../../server/rules.js";
 import {
   approveBorrowRequest,
+  cancelBorrowRequestAdmin,
   listAdminBorrowRequests,
   rejectBorrowRequest,
 } from "../borrowRequests/adminApi.js";
@@ -14,9 +15,10 @@ const FILTERS = [
   { key: "pending", label: "Pending" },
   { key: "approved", label: "Approved" },
   { key: "rejected", label: "Rejected" },
+  { key: "cancelled", label: "Cancelled" },
 ];
 
-const EMPTY_COUNTS = { pending: 0, approved: 0, rejected: 0 };
+const EMPTY_COUNTS = { pending: 0, approved: 0, rejected: 0, cancelled: 0 };
 
 export default function AdminBorrowRequests() {
   const [status, setStatus] = useState("pending");
@@ -28,6 +30,9 @@ export default function AdminBorrowRequests() {
   const [stage, setStage] = useState("review");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [adminCancel, setAdminCancel] = useState(null); // { id, requesterName, equipmentName }
+  const [adminCancelReason, setAdminCancelReason] = useState("");
+  const [adminCancelError, setAdminCancelError] = useState("");
 
   const load = useCallback(async (nextStatus) => {
     setLoading(true);
@@ -103,7 +108,11 @@ export default function AdminBorrowRequests() {
           <div className="dash-panel-head">
             <div>
               <h2 id="borrow-requests-title">Requests</h2>
-              <p>Approve or reject equipment loans submitted by students and faculty.</p>
+              <p>
+                {status === "cancelled"
+                  ? "Cancelled requests with reason (when provided)."
+                  : "Approve or reject equipment loans submitted by students and faculty."}
+              </p>
             </div>
             <div className="dash-request-filters" role="group" aria-label="Filter requests by status">
               {FILTERS.map(({ key, label }) => (
@@ -147,9 +156,15 @@ export default function AdminBorrowRequests() {
                     <th scope="col">Requester</th>
                     <th scope="col">Item</th>
                     <th scope="col">Borrow date</th>
-                    <th scope="col">Return by</th>
-                    <th scope="col">Stock</th>
-                    <th scope="col" className="dash-actions-col">Actions</th>
+                    {status === "cancelled" ? (
+                      <th scope="col">Reason for cancelling</th>
+                    ) : (
+                      <>
+                        <th scope="col">Return by</th>
+                        <th scope="col">Stock</th>
+                      </>
+                    )}
+                    {status !== "cancelled" && <th scope="col" className="dash-actions-col">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -164,22 +179,44 @@ export default function AdminBorrowRequests() {
                         <small>{request.equipmentAssetId}</small>
                       </td>
                       <td>{formatDate(request.borrowDate)}</td>
-                      <td>{formatDate(request.returnDate)}</td>
-                      <td>{request.stock}</td>
-                      <td className="dash-actions-col">
-                        {request.status === "pending" ? (
-                          <div className="dash-request-actions">
-                            <button type="button" className="dash-reject-btn" disabled={busy} onClick={() => openReview(request)}>
-                              Reject
-                            </button>
-                            <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
-                              Approve
-                            </button>
-                          </div>
-                        ) : (
-                          <span aria-label="No actions available">—</span>
-                        )}
-                      </td>
+                      {status === "cancelled" ? (
+                        <td>{request.decisionReason || "—"}</td>
+                      ) : (
+                        <>
+                          <td>{formatDate(request.returnDate)}</td>
+                          <td>{request.stock}</td>
+                        </>
+                      )}
+                      {status !== "cancelled" && (
+                        <td className="dash-actions-col">
+                          {request.status === "pending" ? (
+                            <div className="dash-request-actions">
+                              <button type="button" className="dash-reject-btn" disabled={busy} onClick={() => openReview(request)}>
+                                Reject
+                              </button>
+                              <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
+                                Approve
+                              </button>
+                            </div>
+                          ) : (request.status === "approved" || request.status === "rejected") ? (
+                            <div className="dash-request-actions">
+                              <button
+                                type="button"
+                                className="dash-reject-btn"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (busy) return;
+                                  setAdminCancel({ id: request.id, requesterName: request.requesterName, equipmentName: request.equipmentName });
+                                  setAdminCancelReason("");
+                                  setAdminCancelError("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : null}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -259,6 +296,98 @@ export default function AdminBorrowRequests() {
                   </button>
                 </>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {adminCancel && (
+        <div
+          className="dash-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) {
+              setAdminCancel(null);
+              setAdminCancelReason("");
+              setAdminCancelError("");
+            }
+          }}
+        >
+          <section className="dash-review-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-cancel-title">
+            <div className="dash-drawer-head">
+              <div>
+                <h2 id="admin-cancel-title">Cancel request (admin)</h2>
+                <p>{adminCancel.requesterName} · {adminCancel.equipmentName}</p>
+              </div>
+              <button
+                type="button"
+                className="dash-drawer-close"
+                aria-label="Close cancel dialog"
+                onClick={() => {
+                  if (busy) return;
+                  setAdminCancel(null);
+                  setAdminCancelReason("");
+                  setAdminCancelError("");
+                }}
+                disabled={busy}
+              >
+                ×
+              </button>
+            </div>
+            <div className="dash-drawer-body">
+              <p className="dash-review-note">Optional reason (shown to the requester). Max 300 characters.</p>
+              <div className="field dash-reason-field">
+                <label htmlFor="admin-cancel-reason">Reason for cancelling</label>
+                <textarea
+                  id="admin-cancel-reason"
+                  value={adminCancelReason}
+                  maxLength={300}
+                  rows={4}
+                  onChange={(event) => setAdminCancelReason(event.target.value)}
+                />
+              </div>
+              {adminCancelError && <ErrorText>{adminCancelError}</ErrorText>}
+            </div>
+            <div className="dash-drawer-foot">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => {
+                  if (busy) return;
+                  setAdminCancel(null);
+                  setAdminCancelReason("");
+                  setAdminCancelError("");
+                }}
+                disabled={busy}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="dash-danger-btn"
+                disabled={busy}
+                onClick={async () => {
+                  const trimmed = adminCancelReason.trim();
+                  if (trimmed.length > 300) {
+                    setAdminCancelError("Reason must be 300 characters or fewer.");
+                    return;
+                  }
+                  setAdminCancelError("");
+                  setBusy(true);
+                  try {
+                    await cancelBorrowRequestAdmin(adminCancel.id, trimmed || undefined);
+                    setToast({ type: "success", message: "Request cancelled." });
+                    setAdminCancel(null);
+                    setAdminCancelReason("");
+                    await load(status);
+                  } catch (err) {
+                    setToast({ type: "error", message: err.message });
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "Cancelling..." : "Confirm cancellation"}
+              </button>
             </div>
           </section>
         </div>

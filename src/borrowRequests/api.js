@@ -27,3 +27,5 @@ export const getBorrowRequest = (id) =>
   request(`/${encodeURIComponent(id)}`).then((data) => data.request);
 export const createBorrowRequest = (input) =>
   request("/", { method: "POST", body: input }).then((data) => data.request);
+export const cancelBorrowRequest = (id, reason) =>
+  request(`/${encodeURIComponent(id)}/cancel`, { method: "POST", body: { reason } }).then((data) => data.request);

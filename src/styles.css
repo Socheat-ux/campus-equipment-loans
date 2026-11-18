@@ -843,6 +843,7 @@ a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 .status-approved { color: #0B5A2E; background: #DDF5E7; }
 .status-rejected { color: #8A1C12; background: #FDE4E1; }
 .status-returned { color: #334155; background: #eef2f7; }
+.status-cancelled { color: #334155; background: #e2e8f0; }
 
 @media (max-width: 950px) {
   .equipment-grid {
@@ -1115,6 +1116,7 @@ a.btn-primary { display: grid; place-items: center; text-decoration: none; }
 .notif-chip-request_submitted { color: #a65a12; background: #fff0dc; }
 .notif-chip-request_approved { color: #0f6e4d; background: #e3f6ee; }
 .notif-chip-request_rejected { color: #b3261e; background: #fdecea; }
+.notif-chip-request_cancelled { color: #334155; background: #eef2f7; }
 
 .notif-message { display: block; margin: 0; font-size: 13px; line-height: 1.45; color: #566176; overflow-wrap: anywhere; white-space: pre-line; }
 
