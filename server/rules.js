@@ -16,6 +16,12 @@ export function roleFor(email) {
   return null;
 }
 
+// Signup derives the role from the email. An administrator may change an existing account's role later,
+// but only to one of the roles the database accepts.
+export function roleError(role) {
+  return ROLES.includes(role) ? null : `Choose one of: ${ROLES.join(", ")}.`;
+}
+
 // Keeps the email's order (family name first, Southeast Asian style). Never swapped to "First Last".
 export function displayName(email) {
   return email

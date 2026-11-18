@@ -19,11 +19,17 @@ import "../dashboard.css";
 
 const NAV_ITEMS = [
   { key: "home", label: "Back to Home", Icon: HomeIcon, to: "/" },
+<<<<<<< HEAD
   { key: "dashboard", label: "Dashboard", Icon: DashboardIcon, to: "/dashboard" },
   { key: "equipment", label: "Equipment", Icon: EquipmentIcon, to: "/dashboard" },
   { key: "requests", label: "Requests", Icon: RequestsIcon, to: "/admin/requests" },
+=======
+  { key: "dashboard", label: "Dashboard", Icon: DashboardIcon },
+  { key: "equipment", label: "Equipment", Icon: EquipmentIcon },
+  { key: "requests", label: "Borrow Requests", Icon: RequestsIcon },
+>>>>>>> test
   { key: "history", label: "Loan History", Icon: HistoryIcon },
-  { key: "users", label: "Users", Icon: UsersIcon },
+  { key: "users", label: "Users", Icon: UsersIcon, to: "/users" },
   { key: "reports", label: "Reports", Icon: ReportsIcon },
   { key: "settings", label: "Settings", Icon: SettingsIcon },
 ];
@@ -36,7 +42,11 @@ const initials = (name = "") =>
     .map((part) => part[0].toUpperCase())
     .join("") || "?";
 
+<<<<<<< HEAD
 export default function DashboardLayout({ user: userProp, onLogout, children, active }) {
+=======
+export default function DashboardLayout({ user: userProp, onLogout, active = "equipment", children }) {
+>>>>>>> test
   const { user: sessionUser, logout } = useAuth();
   const user = userProp ?? sessionUser ?? {};
   const navigate = useNavigate();
@@ -81,6 +91,7 @@ export default function DashboardLayout({ user: userProp, onLogout, children, ac
         </div>
 
         <nav className="dash-nav" aria-label="Dashboard navigation">
+<<<<<<< HEAD
           {NAV_ITEMS.map(({ key, label, Icon, to }) => {
             const isActive = key === activeKey;
             return (
@@ -100,6 +111,24 @@ export default function DashboardLayout({ user: userProp, onLogout, children, ac
               </button>
             );
           })}
+=======
+          {NAV_ITEMS.map(({ key, label, Icon, to }) => (
+            <button
+              key={key}
+              type="button"
+              className={`dash-nav-item${key === active ? " is-active" : ""}`}
+              disabled={key !== active && !to}
+              aria-current={key === active ? "page" : undefined}
+              onClick={() => {
+                setSidebarOpen(false);
+                if (to) navigate(to);
+              }}
+            >
+              <Icon size={19} />
+              <span>{label}</span>
+            </button>
+          ))}
+>>>>>>> test
         </nav>
 
         <div className="dash-profile">

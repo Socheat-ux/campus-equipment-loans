@@ -6,7 +6,7 @@ A web system for borrowing and returning CADT equipment. Students and faculty si
 
 - Students use `LastName.FirstName@student.cadt.edu.kh`, faculty use an address ending in `@cadt.edu.kh`.
 - The role and the full name come from the email. `hong.bonsak@student.cadt.edu.kh` becomes "Hong Bonsak", in Southeast Asian order.
-- Administrators are not created at signup.
+- Administrators are not created at signup. An existing administrator assigns that role later at `/users`.
 
 ## Run it
 
@@ -29,9 +29,15 @@ Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`,
 
 ## Equipment and administrators
 
-Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`. The catalogue at `/` is public, and the dashboard at `/dashboard` lists the same equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` is public so visitors can browse the catalogue, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
+Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`, and view each account's role at `/users`. The catalogue at `/` is public, and the dashboard at `/dashboard` lists the same equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` is public so visitors can browse the catalogue, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
 
-Administrators are not created at signup. Promote an existing account directly in the database:
+## Viewing roles
+
+The Users page at `/users` (also reachable from the Users item in the dashboard sidebar) lists accounts and marks each one with its role. It is read-only: there is no control to switch an account between student, faculty and admin. The page calls `GET /api/users`, which uses `requireAdmin(db)`: guests get `401`, students and faculty get `403`, and the response never includes password hashes.
+
+Student and faculty roles come from the email address at signup. To grant the admin role, promote an account directly in the database as shown below. The `PATCH /api/users/:id/role` endpoint still exists for administrative scripts: it takes a JSON body such as `{ "role": "admin" }`, uses the same admin guard, accepts only `student`, `faculty` and `admin` (`400` otherwise), answers `404` for an unknown id and `415` for a non-JSON write, refuses to demote the last administrator, and takes effect on that user's next request.
+
+Administrators are not created at signup. To create the very first one, promote an existing account directly in the database:
 
 ```
 node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.env.DB_PATH || "data/app.db"); db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); db.close();'
@@ -55,7 +61,11 @@ The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's request
 
 ## Roles
 
+<<<<<<< HEAD
 There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
+=======
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `server/rules.js` is the shared list of allowed values.
+>>>>>>> test
 
 ## Notifications
 
