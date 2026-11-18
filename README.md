@@ -61,11 +61,7 @@ The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's request
 
 ## Roles
 
-<<<<<<< HEAD
-There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
-=======
-There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `server/rules.js` is the shared list of allowed values.
->>>>>>> test
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `server/rules.js` is the shared list of allowed values.
 
 ## Notifications
 

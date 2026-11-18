@@ -323,3 +323,13 @@ test("DashboardLayout still shows a preview user, the session user, and the righ
   assert.ok(!session.includes("Administrator"));
   assert.match(await renderLayout({ fullName: "Keo Bopha", role: "faculty" }, { fullName: "Other", role: "admin" }), /Keo Bopha/, "the prop wins");
 });
+
+test("DashboardLayout sidebar drops Loan History, Reports and Settings", async () => {
+  const html = await renderLayout(undefined, { fullName: "Chan Nita", role: "admin" });
+  for (const label of ["Loan History", "Reports", "Settings"]) {
+    assert.ok(!html.includes(label), `sidebar still shows ${label}`);
+  }
+  for (const label of ["Back to Home", "Dashboard", "Equipment", "Borrow Requests", "Users"]) {
+    assert.ok(html.includes(label), `sidebar is missing ${label}`);
+  }
+});

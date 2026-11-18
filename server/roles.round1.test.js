@@ -16,11 +16,7 @@ import { ROLES } from "./rules.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const GOOD = "goodpass1";
-<<<<<<< HEAD
-const ADMIN_PAGES = ["/dashboard", "/admin/requests", "/equipment/new", "/equipment/7/edit"];
-=======
-const ADMIN_PAGES = ["/dashboard", "/equipment/new", "/equipment/7/edit", "/users"];
->>>>>>> test
+const ADMIN_PAGES = ["/dashboard", "/admin/requests", "/equipment/new", "/equipment/7/edit", "/users"];
 const USERS = {
   student: { id: 1, fullName: "Sok Dara", email: "sok.dara@student.cadt.edu.kh", role: "student" },
   faculty: { id: 2, fullName: "Keo Bopha", email: "keo.bopha@cadt.edu.kh", role: "faculty" },

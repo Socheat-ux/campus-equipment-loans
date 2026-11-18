@@ -69,6 +69,7 @@ export default function Login() {
       <p className="switch">
         New here? <Link to="/signup" state={{ from }}>Create an account</Link>
       </p>
+      <Link className="btn-back-home" to="/">← Back to homepage</Link>
     </AuthShell>
   );
 }

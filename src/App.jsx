@@ -10,6 +10,7 @@ import AdminBorrowRequests from "./pages/AdminBorrowRequests.jsx";
 import BorrowRequestNew from "./pages/BorrowRequestNew.jsx";
 import BorrowRequestConfirmation from "./pages/BorrowRequestConfirmation.jsx";
 import MyRequests from "./pages/MyRequests.jsx";
+import UsersPage from "./pages/UsersPage.jsx";
 import { PREVIEW_EQUIPMENT, PREVIEW_USER } from "./equipment/previewData.js";
 import NotAllowedPage from "./pages/NotAllowedPage.jsx";
 import { access } from "./auth/access.js";
