@@ -21,47 +21,9 @@ async function start(t) {
         ...(cookie ? { cookie } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-    
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+    });
   const signup = async (email) => {
-    const res = await call("POST", "/api/auth/signup", { email, password: GOOD 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+    const res = await call("POST", "/api/auth/signup", { email, password: GOOD });
     assert.equal(res.status, 201);
     return res.headers.get("set-cookie").split(";")[0];
   };
@@ -79,26 +41,7 @@ test("equipment reads are public, writes are administrator-only, and each field 
 
   const empty = await call("GET", "/api/equipment", undefined, adminCookie);
   assert.equal(empty.status, 200);
-  assert.deepEqual(await empty.json(), { equipment: [] 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+  assert.deepEqual(await empty.json(), { equipment: [] });
 
   const bad = await call("POST", "/api/equipment", { name: " ", category: "Nope", quantity: -1 }, adminCookie);
   assert.equal(bad.status, 400);
@@ -120,26 +63,7 @@ test("equipment reads are public, writes are administrator-only, and each field 
   );
   assert.equal(created.status, 201);
   const item = (await created.json()).equipment;
-  assert.deepEqual(item, { id: item.id, name: "Epson projector", category: "Projector", quantity: 2 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+  assert.deepEqual(item, { id: item.id, name: "Epson projector", category: "Projector", quantity: 2 });
 
   assert.equal((await call("GET", `/api/equipment/${item.id}`, undefined, adminCookie)).status, 200);
   assert.equal((await call("GET", "/api/equipment/9999", undefined, adminCookie)).status, 404);
@@ -151,26 +75,7 @@ test("equipment reads are public, writes are administrator-only, and each field 
     adminCookie,
   );
   assert.equal(badEdit.status, 400);
-  assert.deepEqual((await badEdit.json()).fields, { quantity: "Quantity must be a whole number." 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+  assert.deepEqual((await badEdit.json()).fields, { quantity: "Quantity must be a whole number." });
 
   const edited = await call(
     "PUT",
@@ -179,48 +84,33 @@ test("equipment reads are public, writes are administrator-only, and each field 
     adminCookie,
   );
   assert.equal(edited.status, 200);
-  assert.deepEqual((await edited.json()).equipment, { id: item.id, name: "Epson projector", category: "Audio", quantity: 0 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
-  assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
-
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
-
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
-});
+  assert.deepEqual((await edited.json()).equipment, { id: item.id, name: "Epson projector", category: "Audio", quantity: 0 });
 
   const list = await call("GET", "/api/equipment", undefined, adminCookie);
   assert.deepEqual((await list.json()).equipment, [
     { id: item.id, name: "Epson projector", category: "Audio", quantity: 0 },
   ]);
+});
 
-  // Delete checks: guests/students forbidden, missing returns 404, items with borrow requests return 409, otherwise 204.
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`)).status, 401);
-  assert.equal((await call("DELETE", `/api/equipment/${item.id}`, undefined, studentCookie)).status, 403);
+test("equipment cannot be deleted while borrow requests refer to it", async (t) => {
+  const { db, call, signup } = await start(t);
+  const studentCookie = await signup(student("sok.dara"));
+  const adminCookie = await signup(student("keo.bopha"));
+  db.prepare("UPDATE users SET role = 'admin' WHERE email = ?").run(student("keo.bopha"));
+  const itemId = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 1)").run().lastInsertRowid);
+
+  assert.equal((await call("DELETE", `/api/equipment/${itemId}`)).status, 401);
+  assert.equal((await call("DELETE", `/api/equipment/${itemId}`, undefined, studentCookie)).status, 403);
   assert.equal((await call("DELETE", "/api/equipment/9999", undefined, adminCookie)).status, 404);
 
-  const userRow = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara"));
-  db.prepare(
-    "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, '2026-12-01', '2026-12-02', 'pending')",
-  ).run(item.id, userRow.id);
+  const userId = db.prepare("SELECT id FROM users WHERE email = ?").get(student("sok.dara")).id;
+  db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date) VALUES (?, ?, '2026-12-01', '2026-12-08')")
+    .run(itemId, userId);
+  const blocked = await call("DELETE", `/api/equipment/${itemId}`, undefined, adminCookie);
+  assert.equal(blocked.status, 409);
+  assert.equal((await blocked.json()).error, "Cannot delete equipment that has existing borrow requests.");
 
-  const blockedDelete = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(blockedDelete.status, 409);
-  assert.equal((await blockedDelete.json()).error, "Cannot delete equipment that has existing borrow requests.");
-
-  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(item.id);
-  const deleted = await call("DELETE", `/api/equipment/${item.id}`, undefined, adminCookie);
-  assert.equal(deleted.status, 204);
-  assert.equal((await call("GET", `/api/equipment/${item.id}`)).status, 404);
+  db.prepare("DELETE FROM borrow_requests WHERE equipment_id = ?").run(itemId);
+  assert.equal((await call("DELETE", `/api/equipment/${itemId}`, undefined, adminCookie)).status, 204);
+  assert.equal((await call("GET", `/api/equipment/${itemId}`)).status, 404);
 });

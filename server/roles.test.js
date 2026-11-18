@@ -94,16 +94,23 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
   db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
   db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 1)").run();
   // The detail route answers 404 without a row of the caller's own, which would look like a misspelt route below.
-  const seedRequest = (who) => {
+  const seedRequest = (who, status = "pending") => {
     db.prepare("DELETE FROM borrow_requests WHERE id = 1").run();
     db
       .prepare(
         `INSERT INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
-         VALUES (1, 1, (SELECT id FROM users WHERE role = ?), '2026-01-01', '2026-01-08', 'pending')`,
+         VALUES (1, 1, (SELECT id FROM users WHERE role = ?), '2026-01-01', '2026-01-08', ?)`,
       )
-      .run(who);
+      .run(who, status);
   };
   const seeds = {
+    "/api/equipment/1": (who) => {
+      if (who !== "admin") return;
+      db.prepare(
+        `INSERT OR IGNORE INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
+         VALUES (2, 1, (SELECT id FROM users WHERE role = 'student'), '2026-01-01', '2026-01-08', 'pending')`,
+      ).run();
+    },
     "/api/borrow-requests/1": (who) => {
       if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
       seedRequest(who);
@@ -117,6 +124,12 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
     },
     "/api/admin/borrow-requests/1/reject": (who) => {
       if (who === "admin") seedRequest("student");
+    },
+    "/api/admin/borrow-requests/1/return": (who) => {
+      if (who === "admin") seedRequest("student", "approved");
+    },
+    "/api/admin/borrow-requests/1/cancel": (who) => {
+      if (who === "admin") seedRequest("student", "approved");
     },
     "/api/notifications/1/read": (who) => {
       const email = emails[who];
