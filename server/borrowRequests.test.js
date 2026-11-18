@@ -71,6 +71,7 @@ test("a student can submit a request, which is saved pending and creates a notif
     status: "pending",
     createdAt: request.createdAt,
     decisionReason: null,
+    returnedAt: null,
   });
 
   const row = db.prepare("SELECT * FROM borrow_requests WHERE id = ?").get(request.id);

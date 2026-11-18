@@ -9,6 +9,7 @@ import {
   cancelBorrowRequestAdmin,
   listAdminBorrowRequests,
   rejectBorrowRequest,
+  returnBorrowRequest,
 } from "../borrowRequests/adminApi.js";
 
 const FILTERS = [
@@ -78,6 +79,20 @@ export default function AdminBorrowRequests() {
       setReview(null);
       setStage("review");
       setReason("");
+      await load(status);
+    } catch (err) {
+      setToast({ type: "error", message: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markReturned = async (request) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await returnBorrowRequest(request.id);
+      setToast({ type: "success", message: "Equipment return recorded." });
       await load(status);
     } catch (err) {
       setToast({ type: "error", message: err.message });
@@ -200,6 +215,11 @@ export default function AdminBorrowRequests() {
                             </div>
                           ) : (request.status === "approved" || request.status === "rejected") ? (
                             <div className="dash-request-actions">
+                              {request.status === "approved" && (
+                                <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => markReturned(request)}>
+                                  Record return
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="dash-reject-btn"

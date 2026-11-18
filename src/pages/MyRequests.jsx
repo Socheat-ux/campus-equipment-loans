@@ -159,9 +159,10 @@ export default function MyRequests() {
                       <StatusBadge status={request.status} />
                       {request.status === "approved" && (
                         <small className="request-status-note">
-                          Pick up at {request.equipmentLocation} on {formatDate(request.borrowDate)}.
+                          Pick up at {request.equipmentLocation} on {formatDate(request.borrowDate)}. {remainingTime(request.returnDate)}
                         </small>
                       )}
+                      {request.status === "returned" && request.returnedAt && <small className="request-status-note">Returned on {formatDate(request.returnedAt.slice(0, 10))}.</small>}
                       {request.status === "rejected" && request.decisionReason && (
                         <small className="request-status-note">Reason: {request.decisionReason}</small>
                       )}
@@ -219,4 +220,14 @@ export default function MyRequests() {
       )}
     </div>
   );
+}
+
+function remainingTime(returnDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(`${returnDate}T00:00:00`);
+  const days = Math.ceil((due - today) / 86400000);
+  if (days < 0) return `Overdue by ${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"}.`;
+  if (days === 0) return "Due today.";
+  return `${days} ${days === 1 ? "day" : "days"} remaining.`;
 }

@@ -7,6 +7,7 @@ import EquipmentAdd from "./pages/EquipmentAdd.jsx";
 import EquipmentEdit from "./pages/EquipmentEdit.jsx";
 import EquipmentDashboard from "./pages/EquipmentDashboard.jsx";
 import AdminBorrowRequests from "./pages/AdminBorrowRequests.jsx";
+import AdminOverdue from "./pages/AdminOverdue.jsx";
 import BorrowRequestNew from "./pages/BorrowRequestNew.jsx";
 import BorrowRequestConfirmation from "./pages/BorrowRequestConfirmation.jsx";
 import MyRequests from "./pages/MyRequests.jsx";
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/signup" element={<Gate><Signup /></Gate>} />
       <Route path="/dashboard" element={<RoleGate roles={["admin"]} page="The equipment dashboard"><EquipmentDashboard /></RoleGate>} />
       <Route path="/admin/requests" element={<RoleGate roles={["admin"]} page="Borrow requests"><AdminBorrowRequests /></RoleGate>} />
+      <Route path="/admin/overdue" element={<RoleGate roles={["admin"]} page="Overdue loans"><AdminOverdue /></RoleGate>} />
       <Route path="/requests" element={<RoleGate roles={["student", "faculty"]} page="My requests"><MyRequests /></RoleGate>} />
       <Route path="/requests/new" element={<RoleGate roles={["student", "faculty"]} page="Borrowing requests"><BorrowRequestNew /></RoleGate>} />
       <Route path="/requests/:id/confirmation" element={<RoleGate roles={["student", "faculty"]} page="Borrowing confirmations"><BorrowRequestConfirmation /></RoleGate>} />

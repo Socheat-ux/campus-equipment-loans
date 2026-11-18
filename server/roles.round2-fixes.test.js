@@ -81,7 +81,7 @@ test("home page shows 'Administrator' / 'Faculty' / 'Student', never the raw rol
 test("App: the not-allowed page is keyed by pathname, so two blocked pages do not share one instance", async () => {
   const app = await load("src/App.jsx", {
     "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
-    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard|AdminBorrowRequests|BorrowRequestNew|BorrowRequestConfirmation|MyRequests|UsersPage)[.]jsx$": `export default "Page";`,
+    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard|AdminBorrowRequests|AdminOverdue|BorrowRequestNew|BorrowRequestConfirmation|MyRequests|UsersPage)[.]jsx$": `export default "Page";`,
     "pages/NotAllowedPage[.]jsx$": `export default "NotAllowedPage";`,
     "equipment/previewData[.]js$": "export const PREVIEW_EQUIPMENT = [], PREVIEW_USER = {};",
     "^react-router-dom$": `export const Routes = "Routes", Route = "Route", Navigate = "Navigate";
