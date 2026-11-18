@@ -9,8 +9,8 @@ import { access, rolesLabel } from "../src/auth/access.js";
 
 const GOOD = "goodpass1";
 
-// Every API route and who may reach it. "public": anyone; "signed-in": any role; "admin": administrators only.
-// A new route must be added here, or the count check below fails.
+// Every API route and who may reach it. "public": anyone; "signed-in": any role; "borrower": students and faculty;
+// "admin": administrators only. A new route must be added here, or the count check below fails.
 const ROUTES = [
   ["POST", "/api/auth/signup", "public"],
   ["POST", "/api/auth/login", "public"],
@@ -20,8 +20,16 @@ const ROUTES = [
   ["GET", "/api/equipment/1", "public"],
   ["POST", "/api/equipment", "admin"],
   ["PUT", "/api/equipment/1", "admin"],
+  ["GET", "/api/borrow-requests", "borrower"],
+  ["GET", "/api/borrow-requests/1", "borrower"],
+  ["POST", "/api/borrow-requests", "borrower"],
+  ["GET", "/api/admin/borrow-requests", "admin"],
+  ["POST", "/api/admin/borrow-requests/1/approve", "admin"],
+  ["POST", "/api/admin/borrow-requests/1/reject", "admin"],
   ["GET", "/api/notifications", "signed-in"],
   ["POST", "/api/notifications/read", "signed-in"],
+  ["POST", "/api/notifications/read-all", "signed-in"],
+  ["POST", "/api/notifications/1/read", "signed-in"],
 ];
 
 // Counts endpoints: route handlers (one per path and method, so array paths count each path) inside mounted routers,
@@ -65,23 +73,63 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
     assert.equal(res.status, 201, email);
     return res.headers.get("set-cookie").split(";")[0];
   };
+  const emails = {
+    student: "sok.dara@student.cadt.edu.kh",
+    faculty: "keo.bopha@cadt.edu.kh",
+    admin: "chan.nita@cadt.edu.kh",
+  };
   const cookies = {
     guest: undefined,
-    student: await signup("sok.dara@student.cadt.edu.kh"),
-    faculty: await signup("keo.bopha@cadt.edu.kh"),
-    admin: await signup("chan.nita@cadt.edu.kh"),
+    student: await signup(emails.student),
+    faculty: await signup(emails.faculty),
+    admin: await signup(emails.admin),
   };
   db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
   db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 1)").run();
+  // The detail route answers 404 without a row of the caller's own, which would look like a misspelt route below.
+  const seedRequest = (who) => {
+    db.prepare("DELETE FROM borrow_requests WHERE id = 1").run();
+    db
+      .prepare(
+        `INSERT INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
+         VALUES (1, 1, (SELECT id FROM users WHERE role = ?), '2026-01-01', '2026-01-08', 'pending')`,
+      )
+      .run(who);
+  };
+  const seeds = {
+    "/api/borrow-requests/1": (who) => {
+      if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
+      seedRequest(who);
+    },
+    "/api/admin/borrow-requests/1/approve": (who) => {
+      if (who === "admin") seedRequest("student");
+    },
+    "/api/admin/borrow-requests/1/reject": (who) => {
+      if (who === "admin") seedRequest("student");
+    },
+    "/api/notifications/1/read": (who) => {
+      const email = emails[who];
+      if (!email) return;
+      db.prepare("DELETE FROM notifications WHERE id = 1").run();
+      db
+        .prepare(
+          `INSERT INTO notifications (id, user_id, type, message)
+           VALUES (1, (SELECT id FROM users WHERE email = ?), 'request_approved', 'Seed')`,
+        )
+        .run(email);
+    },
+  };
 
   const expected = {
     public: { guest: "in", student: "in", faculty: "in", admin: "in" },
     "signed-in": { guest: 401, student: "in", faculty: "in", admin: "in" },
+    borrower: { guest: 401, student: "in", faculty: "in", admin: 403 },
     admin: { guest: 401, student: 403, faculty: 403, admin: "in" },
   };
   for (const [method, path, rule] of ROUTES) {
     if (path === "/api/auth/logout") continue; // logging out would end the sessions the other checks use
     for (const [who, cookie] of Object.entries(cookies)) {
+      seeds[path]?.(who);
       const { status } = await call(method, path, cookie);
       const want = expected[rule][who];
       const label = `${method} ${path} as ${who} gave ${status}`;

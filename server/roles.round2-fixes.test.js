@@ -67,8 +67,12 @@ test("home page shows 'Administrator' / 'Faculty' / 'Student', never the raw rol
   });
   for (const [role, shown] of [["admin", "Administrator"], ["faculty", "Faculty"], ["student", "Student"]]) {
     fresh({ auth: { user: { fullName: "Sok Dara", role }, logout: async () => {} } });
-    const small = [...walk(home.default())].find((n) => n.type === "small");
+    const header = [...walk(home.default())].find((n) => typeof n.type === "function" && n.props?.active === "catalog");
+    assert.ok(header, "the home page uses the shared student header");
+    const headerTree = [...walk(header.type(header.props))];
+    const small = headerTree.find((n) => n.type === "small");
     assert.equal(small.props.children, shown);
+    assert.equal(headerTree.some((n) => n.type === "NotificationBell"), role !== "admin", `bell for ${role}`);
   }
 });
 
@@ -77,7 +81,7 @@ test("home page shows 'Administrator' / 'Faculty' / 'Student', never the raw rol
 test("App: the not-allowed page is keyed by pathname, so two blocked pages do not share one instance", async () => {
   const app = await load("src/App.jsx", {
     "AuthContext[.]jsx$": "export const useAuth = () => globalThis.__T.auth;",
-    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard)[.]jsx$": `export default "Page";`,
+    "pages/(Login|Signup|HomePage|EquipmentAdd|EquipmentEdit|EquipmentDashboard|AdminBorrowRequests|BorrowRequestNew|BorrowRequestConfirmation|MyRequests)[.]jsx$": `export default "Page";`,
     "pages/NotAllowedPage[.]jsx$": `export default "NotAllowedPage";`,
     "equipment/previewData[.]js$": "export const PREVIEW_EQUIPMENT = [], PREVIEW_USER = {};",
     "^react-router-dom$": `export const Routes = "Routes", Route = "Route", Navigate = "Navigate";

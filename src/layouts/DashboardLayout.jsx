@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { roleName } from "../auth/access.js";
-import NotificationBell from "../notifications/NotificationBell.jsx";
 import {
   ChevronDownIcon,
   DashboardIcon,
@@ -20,9 +19,9 @@ import "../dashboard.css";
 
 const NAV_ITEMS = [
   { key: "home", label: "Back to Home", Icon: HomeIcon, to: "/" },
-  { key: "dashboard", label: "Dashboard", Icon: DashboardIcon },
-  { key: "equipment", label: "Equipment", Icon: EquipmentIcon, active: true },
-  { key: "requests", label: "Borrow Requests", Icon: RequestsIcon },
+  { key: "dashboard", label: "Dashboard", Icon: DashboardIcon, to: "/dashboard" },
+  { key: "equipment", label: "Equipment", Icon: EquipmentIcon, to: "/dashboard" },
+  { key: "requests", label: "Requests", Icon: RequestsIcon, to: "/admin/requests" },
   { key: "history", label: "Loan History", Icon: HistoryIcon },
   { key: "users", label: "Users", Icon: UsersIcon },
   { key: "reports", label: "Reports", Icon: ReportsIcon },
@@ -37,10 +36,12 @@ const initials = (name = "") =>
     .map((part) => part[0].toUpperCase())
     .join("") || "?";
 
-export default function DashboardLayout({ user: userProp, onLogout, children }) {
+export default function DashboardLayout({ user: userProp, onLogout, children, active }) {
   const { user: sessionUser, logout } = useAuth();
-  const user = userProp ?? sessionUser ?? {}; // never invent an administrator
+  const user = userProp ?? sessionUser ?? {};
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const activeKey = active ?? (pathname.startsWith("/admin/requests") ? "requests" : "equipment");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const accountRef = useRef(null);
@@ -80,22 +81,25 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
         </div>
 
         <nav className="dash-nav" aria-label="Dashboard navigation">
-          {NAV_ITEMS.map(({ key, label, Icon, active, to }) => (
-            <button
-              key={key}
-              type="button"
-              className={`dash-nav-item${active ? " is-active" : ""}`}
-              disabled={!active && !to}
-              aria-current={active ? "page" : undefined}
-              onClick={() => {
-                setSidebarOpen(false);
-                if (to) navigate(to);
-              }}
-            >
-              <Icon size={19} />
-              <span>{label}</span>
-            </button>
-          ))}
+          {NAV_ITEMS.map(({ key, label, Icon, to }) => {
+            const isActive = key === activeKey;
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`dash-nav-item${isActive ? " is-active" : ""}`}
+                disabled={!isActive && !to}
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => {
+                  setSidebarOpen(false);
+                  if (to) navigate(to);
+                }}
+              >
+                <Icon size={19} />
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </nav>
 
         <div className="dash-profile">
@@ -125,8 +129,6 @@ export default function DashboardLayout({ user: userProp, onLogout, children }) 
             <MenuIcon size={21} />
           </button>
           <div className="dash-topbar-spacer" />
-
-          <NotificationBell />
 
           <div className="dash-account" ref={accountRef}>
             <button

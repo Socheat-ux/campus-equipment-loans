@@ -3,15 +3,16 @@
   --dash-sidebar: #102e5c;
   --dash-blue: #0b55b5;
   --dash-blue-dark: #09458f;
-  --dash-bg: #eef4fc;
+  --dash-primary: #0f4fa8;
+  --dash-bg: #f5f7fb;
   --dash-text: #152d55;
   --dash-muted: #64748b;
-  --dash-border: #d9e4f4;
+  --dash-border: #e3e8f0;
   --dash-success: #159b70;
   min-height: 100vh;
   background: var(--dash-bg);
   color: var(--dash-text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 /* sidebar */
@@ -244,9 +245,10 @@
   padding: 20px;
   background: #fff;
   border: 1px solid var(--dash-border);
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: 0 8px 24px rgba(15, 40, 82, 0.05);
 }
+
 .dash-stat-icon {
   display: grid;
   flex: none;
@@ -273,7 +275,7 @@
   overflow: hidden;
   background: #fff;
   border: 1px solid var(--dash-border);
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: 0 10px 30px rgba(15, 40, 82, 0.06);
 }
 .dash-panel-head {
@@ -522,6 +524,113 @@
 .dash-toast button:hover { background: rgba(13, 107, 78, 0.1); }
 .dash-toast.is-error { color: #9f1d17; background: #fdecea; border-color: #f5c6c2; }
 .dash-toast.is-error button:hover { background: rgba(159, 29, 23, 0.08); }
+
+/* borrow requests */
+.dash-request-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--dash-text);
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid var(--dash-border);
+  border-radius: 999px;
+}
+.dash-filter-pill:hover { border-color: var(--dash-primary); }
+.dash-filter-pill.is-active { color: #fff; background: var(--dash-primary); border-color: var(--dash-primary); }
+.dash-filter-pill span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 0.72rem;
+  color: inherit;
+  background: rgba(15, 79, 168, 0.1);
+  border-radius: 999px;
+}
+.dash-filter-pill.is-active span { background: rgba(255, 255, 255, 0.22); }
+.dash-requests-table small { display: block; margin-top: 3px; font-size: 0.73rem; color: var(--dash-muted); }
+.dash-request-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dash-reject-btn,
+.dash-danger-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 9px;
+}
+.dash-reject-btn:disabled,
+.dash-danger-btn:disabled { cursor: default; opacity: 0.55; }
+.dash-reject-btn { color: #b42318; background: #fff5f4; border: 1px solid #f1c7c3; }
+.dash-reject-btn:hover:not(:disabled) { background: #ffe8e5; }
+.dash-danger-btn { color: #fff; background: #b42318; border: 1px solid #b42318; }
+.dash-danger-btn:hover:not(:disabled) { background: #991d14; }
+
+.dash-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 40, 82, 0.42);
+}
+.dash-review-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(500px, 100%);
+  max-height: min(680px, 92vh);
+  overflow: hidden;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(15, 40, 82, 0.28);
+}
+.dash-review-dialog .dash-drawer-head { padding: 22px 24px 16px; }
+.dash-review-dialog .dash-drawer-body { padding: 8px 24px 24px; }
+.dash-review-dialog .dash-drawer-foot { padding: 14px 24px; }
+.dash-review-details { margin: 0; }
+.dash-review-details div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f8;
+}
+.dash-review-details dt { font-size: 0.78rem; font-weight: 700; color: var(--dash-muted); }
+.dash-review-details dd { margin: 0; font-size: 0.85rem; color: var(--dash-text); }
+.dash-review-note {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  font-size: 0.8rem;
+  color: #0f5132;
+  background: #e7f8f1;
+  border-radius: 9px;
+}
+.dash-reason-field { margin-top: 6px; }
+.dash-reason-field label { display: block; margin-bottom: 7px; font-size: 0.82rem; font-weight: 700; }
+.dash-reason-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--dash-text);
+  background: #fbfdff;
+  border: 1px solid var(--dash-border);
+  border-radius: 9px;
+  resize: vertical;
+}
 
 /* responsive */
 .dash-sidebar-scrim { display: none; }

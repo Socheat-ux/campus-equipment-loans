@@ -195,7 +195,7 @@ test("safeReturnPath keeps odd but harmless in-app paths, including huge ones, a
 
 test("DEFECT (low): the route-count check misses an /api endpoint written as plain middleware or as a mounted sub-app", async () => {
   const src = readFileSync(join(ROOT, "server/roles.test.js"), "utf8");
-  const fn = /function countRouterRoutes[\s\S]*?\n}\n/.exec(src)?.[0];
+  const fn = /function countRouterRoutes[\s\S]*?\r?\n}\r?\n/.exec(src)?.[0];
   assert.ok(fn, "countRouterRoutes moved: import it here instead");
   const countRouterRoutes = new Function(`${fn}; return countRouterRoutes;`)();
 

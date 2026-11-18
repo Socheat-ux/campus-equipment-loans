@@ -66,6 +66,83 @@ export function equipmentQuantityError(quantity) {
   return null;
 }
 
+export const BORROW_MAX_DAYS = 7;
+export const PURPOSE_MAX = 500;
+export const REJECTION_REASON_MAX = 500;
+
+// Dates are plain calendar days ("YYYY-MM-DD"), so they compare and add without a time zone getting involved.
+export function parseISODate(value) {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    ? date
+    : null;
+}
+
+export function todayISO(now = new Date()) {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDaysISO(iso, days) {
+  const date = parseISODate(iso);
+  if (!date || !Number.isInteger(days)) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function borrowDateError(value, today = todayISO()) {
+  if (typeof value !== "string" || !value.trim()) return "Choose a borrow date.";
+  const date = parseISODate(value.trim());
+  if (!date) return "Enter a valid date.";
+  if (value.trim() < today) return "Borrow date cannot be in the past.";
+  return null;
+}
+
+export function purposeError(purpose) {
+  if (purpose === null || purpose === undefined || purpose === "") return null;
+  if (typeof purpose !== "string") return "Purpose must be text.";
+  if (purpose.trim().length > PURPOSE_MAX) return `Purpose must be ${PURPOSE_MAX} characters or fewer.`;
+  return null;
+}
+
+export function rejectionReasonError(reason) {
+  if (typeof reason !== "string" || !reason.trim()) return "A reason is required.";
+  if (reason.trim().length > REJECTION_REASON_MAX) return `Reason must be ${REJECTION_REASON_MAX} characters or fewer.`;
+  return null;
+}
+
+// Shared by the request form and the server. The return date is calculated here; a client-sent one is ignored.
+export function borrowRequestInput(body, today = todayISO()) {
+  const rawId = body?.equipmentId;
+  const equipmentId =
+    typeof rawId === "number" || (typeof rawId === "string" && rawId.trim() !== "") ? Number(rawId) : NaN;
+  const borrowDate = typeof body?.borrowDate === "string" ? body.borrowDate.trim() : "";
+  const purpose = typeof body?.purpose === "string" ? body.purpose.trim() : "";
+
+  const fields = {};
+  if (!Number.isInteger(equipmentId) || equipmentId < 1) fields.equipmentId = "Choose an item to borrow.";
+  const dateError = borrowDateError(borrowDate, today);
+  if (dateError) fields.borrowDate = dateError;
+  const textError = purposeError(purpose);
+  if (textError) fields.purpose = textError;
+
+  return {
+    fields,
+    value: {
+      equipmentId: Number.isInteger(equipmentId) ? equipmentId : null,
+      borrowDate,
+      returnDate: dateError ? null : addDaysISO(borrowDate, BORROW_MAX_DAYS),
+      purpose: purpose || null,
+    },
+  };
+}
+
 // Shared by the form and the server: returns normalised values plus a message per bad field.
 export function equipmentInput(body) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";

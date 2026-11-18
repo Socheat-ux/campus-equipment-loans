@@ -26,9 +26,22 @@ export function openDb(path) {
       name TEXT NOT NULL,
       category TEXT NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity >= 0),
+      asset_id TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT 'Main store',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS borrow_requests (
+      id INTEGER PRIMARY KEY,
+      equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE RESTRICT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      borrow_date TEXT NOT NULL,
+      return_date TEXT NOT NULL,
+      purpose TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'returned')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS borrow_requests_user_id ON borrow_requests (user_id, id);
     -- ISO time with a Z: CURRENT_TIMESTAMP has no zone, and browsers would read it as local time.
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY,
@@ -36,6 +49,7 @@ export function openDb(path) {
       type TEXT NOT NULL,
       message TEXT NOT NULL,
       reason TEXT,
+      request_id INTEGER,
       read_at TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
@@ -43,6 +57,29 @@ export function openDb(path) {
     DROP INDEX IF EXISTS notifications_user_created;
     CREATE INDEX IF NOT EXISTS notifications_user_id ON notifications (user_id, id);
   `);
+
+  const equipmentColumns = new Set(db.prepare("PRAGMA table_info(equipment)").all().map((col) => col.name));
+  if (!equipmentColumns.has("asset_id")) db.exec("ALTER TABLE equipment ADD COLUMN asset_id TEXT NOT NULL DEFAULT ''");
+  if (!equipmentColumns.has("location")) db.exec("ALTER TABLE equipment ADD COLUMN location TEXT NOT NULL DEFAULT 'Main store'");
+  db.exec(`
+    UPDATE equipment SET asset_id = 'CG-' || printf('%04d', id) WHERE asset_id IS NULL OR asset_id = '';
+    UPDATE equipment SET location = 'Main store' WHERE location IS NULL OR location = '';
+    CREATE TRIGGER IF NOT EXISTS equipment_asset_id
+    AFTER INSERT ON equipment
+    WHEN NEW.asset_id = ''
+    BEGIN
+      UPDATE equipment SET asset_id = 'CG-' || printf('%04d', NEW.id) WHERE id = NEW.id;
+    END;
+  `);
+
+  const requestColumns = new Set(db.prepare("PRAGMA table_info(borrow_requests)").all().map((col) => col.name));
+  if (!requestColumns.has("decided_by")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decided_by INTEGER");
+  if (!requestColumns.has("decided_at")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decided_at TEXT");
+  if (!requestColumns.has("decision_reason")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decision_reason TEXT");
+
+  const notificationColumns = new Set(db.prepare("PRAGMA table_info(notifications)").all().map((col) => col.name));
+  if (!notificationColumns.has("request_id")) db.exec("ALTER TABLE notifications ADD COLUMN request_id INTEGER");
+
   return db;
 }
 

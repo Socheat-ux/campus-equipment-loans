@@ -23,3 +23,5 @@ async function request(path, body) {
 export const listNotifications = () => request("/");
 // Pass a list of ids, or "all" with the newest id the user has seen, so later arrivals stay unread.
 export const markNotificationsRead = (ids, upTo) => request("/read", ids === "all" ? { all: true, upTo } : { ids });
+export const markNotificationRead = (id) => request(`/${encodeURIComponent(id)}/read`, {});
+export const markAllNotificationsRead = () => request("/read-all", {});

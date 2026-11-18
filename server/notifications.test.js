@@ -28,7 +28,7 @@ async function start(t) {
     const res = await call("POST", "/api/auth/signup", { body: { email: student(name), password: GOOD } });
     assert.equal(res.status, 201);
     const { user } = await res.json();
-    return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
+    return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id, email: user.email, fullName: user.fullName };
   };
   return { db, call, signup };
 }
@@ -143,6 +143,34 @@ test("marking read touches only the caller's own rows", async (t) => {
   assert.equal((await list(call, b.cookie)).unread, 1);
 });
 
+test("per-notification and read-all endpoints keep one user's rows private", async (t) => {
+  const { db, call, signup } = await start(t);
+  const a = await signup("sok.dara");
+  const b = await signup("keo.bopha");
+  const [a1, a2, b1] = withTransaction(db, () => [
+    notify(db, { userId: a.id, type: "request_approved", message: "a1" }),
+    notify(db, { userId: a.id, type: "request_approved", message: "a2" }),
+    notify(db, { userId: b.id, type: "request_approved", message: "b1" }),
+  ]);
+
+  let res = await call("POST", `/api/notifications/${a1}/read`, { cookie: a.cookie, body: {} });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).unread, 1);
+  assert.deepEqual((await list(call, a.cookie)).notifications.map((n) => [n.id, n.read]), [[a2, false], [a1, true]]);
+  assert.equal((await list(call, b.cookie)).unread, 1);
+
+  res = await call("POST", `/api/notifications/${b1}/read`, { cookie: a.cookie, body: {} });
+  assert.equal(res.status, 404);
+  assert.equal((await list(call, b.cookie)).unread, 1);
+  assert.equal((await call("POST", "/api/notifications/nope/read", { cookie: a.cookie, body: {} })).status, 404);
+
+  res = await call("POST", "/api/notifications/read-all", { cookie: a.cookie, body: {} });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).unread, 0);
+  assert.equal((await list(call, a.cookie)).notifications.every((n) => n.read), true);
+  assert.equal((await list(call, b.cookie)).unread, 1);
+});
+
 test("mark-read refuses anything that is not a clean JSON object", async (t) => {
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
@@ -202,4 +230,42 @@ test("withTransaction keeps a status change and its notification together", asyn
   );
   assert.equal(quantity(), 1);
   assert.equal(withTransaction(db, () => "ok"), "ok");
+});
+
+test("an admin bell shows earlier borrow requests in request-date order, once", async (t) => {
+  const { db, call, signup } = await start(t);
+  const student = await signup("sok.dara");
+  const admin = await signup("admin.user");
+  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+
+  const equipmentId = Number(
+    db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson Projector', 'Projector', 2)").run()
+      .lastInsertRowid,
+  );
+  const olderAt = "2026-11-01T08:00:00.000Z";
+  const newerAt = "2026-11-10T09:30:00.000Z";
+  db.prepare(
+    `INSERT INTO borrow_requests
+       (equipment_id, user_id, borrow_date, return_date, purpose, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(equipmentId, student.id, "2026-11-20", "2026-11-21", "class", olderAt);
+  db.prepare(
+    `INSERT INTO borrow_requests
+       (equipment_id, user_id, borrow_date, return_date, purpose, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(equipmentId, student.id, "2026-11-25", "2026-11-26", "club", newerAt);
+
+  const first = await list(call, admin.cookie);
+  assert.deepEqual(
+    first.notifications.map((n) => [n.message, n.createdAt]),
+    [
+      [`New borrow request from ${student.fullName || student.email} for Epson Projector.`, newerAt],
+      [`New borrow request from ${student.fullName || student.email} for Epson Projector.`, olderAt],
+    ],
+  );
+  assert.equal(first.unread, 2);
+
+  const second = await list(call, admin.cookie);
+  assert.equal(second.notifications.length, 2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?").get(admin.id).n, 2);
 });

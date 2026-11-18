@@ -279,7 +279,7 @@ async function renderLayout(user, sessionUser) {
           return renderToString(jsx(MemoryRouter, { children: jsx(DashboardLayout, { user, children: "page body" }) }));
         };`,
       auth: "export const useAuth = () => globalThis.__auth;",
-      bell: "export default () => null;",
+      bell: `import { jsx } from "react/jsx-runtime"; export default () => jsx("button", { children: "notification bell" });`,
     };
     const result = await build({
       entryPoints: ["entry"],
@@ -311,6 +311,7 @@ async function renderLayout(user, sessionUser) {
 test("DashboardLayout with no user shows no name and no role instead of a fake administrator", async () => {
   const html = await renderLayout(undefined, null);
   assert.match(html, /page body/);
+  assert.ok(!html.includes("notification bell"), "admin layout has no notification bell");
   for (const fake of ["Admin User", "Administrator", "Student", "Faculty", "AU"]) assert.ok(!html.includes(fake), `shows ${fake}`);
 });
 

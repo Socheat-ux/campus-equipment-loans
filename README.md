@@ -37,6 +37,12 @@ Administrators are not created at signup. Promote an existing account directly i
 node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.env.DB_PATH || "data/app.db"); db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); db.close();'
 ```
 
+## Borrow requests
+
+Students and faculty start a request from the catalogue button at `/requests/new?equipmentId=<id>`, or from the "My requests" link in the header. The form picks a borrow date from today onwards; the return date is always seven days later, calculated by the shared rules in `server/rules.js`, so a return date sent by the browser is ignored. A new request is `pending` and does not change the item's stock. The caller sees their requests at `/requests` and the submitted request at `/requests/:id/confirmation`.
+
+The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's requests, `GET /:id` returns one of their own, and `POST /` accepts `{ "equipmentId": 1, "borrowDate": "YYYY-MM-DD", "purpose": "Final year project" }` (`purpose` is optional). Students and faculty can use these routes; signed-out visitors get `401` and administrators get `403`. Submitting saves the request and `request_submitted` notifications for the borrower and every administrator in one transaction. An administrator's bell also backfills notices for older requests that were saved before their account existed, ordered by request date, without creating duplicates. Staff approval, rejection and returns are not wired up yet.
+
 ## Add to it
 
 - Protect an API route with `requireAuth(db)` (any signed-in user) or `requireRole(db, "admin")` (only those roles; `requireRole(db, "student", "faculty")` works too) from `server/auth.js`. Both answer 401 without a session, `requireRole` answers 403 for other roles, and both set `req.user` to `{ id, email, fullName, role }`. A misspelt role name stops the server at startup. `requireAdmin(db)` is the same as `requireRole(db, "admin")`.
@@ -49,11 +55,11 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 
 ## Roles
 
-There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue.
 
 ## Notifications
 
-Signed-in users see a bell in the catalogue header and the dashboard top bar. It checks for new notifications every 30 seconds, shows the unread count, and marks the shown notifications as read when opened. The API is `GET /api/notifications` (the caller's 50 newest, plus the unread count) and `POST /api/notifications/read` with `{ "ids": [1, 2] }`, `{ "all": true }` or `{ "all": true, "upTo": 42 }`. `upTo` (a positive integer) limits "all" to notifications with `id <= upTo`, so the bell can mark everything it has shown without touching a notice that arrived after the last check. Any other body gets a 400, so a typo never marks everything read.
+Signed-in users see a bell in the catalogue header and the dashboard top bar. It checks for new notifications every 30 seconds, shows the unread count, and marks the shown notifications as read when opened. The API is `GET /api/notifications` (the caller's 50 newest, plus the unread count), `POST /api/notifications/read` with `{ "ids": [1, 2] }`, `{ "all": true }` or `{ "all": true, "upTo": 42 }`, `POST /api/notifications/:id/read` for one notice and `POST /api/notifications/read-all` for every notice. `upTo` (a positive integer) limits "all" to notifications with `id <= upTo`, so the bell can mark everything it has shown without touching a notice that arrived after the last check. Any other body gets a 400, so a typo never marks everything read.
 
 ## Known limits
 

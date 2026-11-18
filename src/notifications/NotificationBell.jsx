@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { BellIcon } from "../components/Icons.jsx";
-import { listNotifications, markNotificationsRead } from "./api.js";
+import { listNotifications, markAllNotificationsRead, markNotificationRead, markNotificationsRead } from "./api.js";
 
 const POLL_MS = 30_000;
-const LABELS = { request_approved: "Approved", request_rejected: "Rejected" };
+const REQUEST_TYPES = new Set(["request_submitted", "request_approved", "request_rejected"]);
+const LABELS = { request_submitted: "Submitted", request_approved: "Approved", request_rejected: "Rejected" };
+const TITLES = {
+  request_submitted: "Request submitted",
+  request_approved: "Request approved",
+  request_rejected: "Request rejected",
+};
 const UNITS = [
   ["year", 31_536_000],
   ["month", 2_592_000],
@@ -16,58 +22,53 @@ const UNITS = [
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 
 function timeAgo(iso) {
-  // Clamp to the past: a browser clock behind the server must not show "in 3 minutes".
   const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
   for (const [unit, size] of UNITS) {
-    const count = Math.floor(seconds / size); // floor, so 59.5 minutes is not "60 minutes ago"
-    // Months stop at 11: a month is 30 days, so days 360 to 364 would otherwise read "12 months ago".
+    const count = Math.floor(seconds / size);
     if (count >= 1) return relative.format(-(unit === "month" ? Math.min(count, 11) : count), unit);
   }
   return "just now";
 }
 
-// Shows nothing for guests and design previews, so only a real session ever polls.
-export default function NotificationBell() {
+export default function NotificationBell({ onNavigate }) {
   const { user } = useAuth();
-  return user ? <Bell key={user.id} /> : null;
+  return user ? <Bell key={user.id} onNavigate={onNavigate} /> : null;
 }
 
-function Bell() {
+function Bell({ onNavigate }) {
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
-  const [status, setStatus] = useState("loading"); // loading, ready or error
+  const [status, setStatus] = useState("loading");
   const [open, setOpen] = useState(false);
-  const [fresh, setFresh] = useState(() => new Set()); // unread when the panel opened, highlighted until it closes
+  const [fresh, setFresh] = useState(() => new Set());
   const [announcement, setAnnouncement] = useState("");
   const [top, setTop] = useState(0);
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
-  const highestId = useRef(null); // newest notification id seen so far, null before the first load
+  const panelRef = useRef(null);
+  const highestId = useRef(null);
   const flip = useRef(false);
-  const requestSeq = useRef(0); // only the newest poll may update state
+  const requestSeq = useRef(0);
   const panelId = useId();
 
   const load = useCallback(async () => {
     const seq = ++requestSeq.current;
     try {
       const data = await listNotifications();
-      if (seq !== requestSeq.current) return; // a newer poll or a mark-read has overtaken this one
+      if (seq !== requestSeq.current) return;
       setItems(data.notifications);
       setUnread(data.unread);
       setStatus("ready");
-      // The list is newest first. An id above the highest seen is new, whatever the unread count did.
       const newest = data.notifications[0]?.id ?? 0;
       if (highestId.current !== null && newest > highestId.current) {
-        // A trailing no-break space alternates, so identical text still changes the DOM and is read out again.
         flip.current = !flip.current;
         const added = data.notifications.filter((item) => item.id > highestId.current).length;
         const what = added > 1 ? `${added} new notifications.` : "New notification.";
-        setAnnouncement(`${what} ${data.unread} unread.${flip.current ? " " : ""}`);
+        setAnnouncement(`${what} ${data.unread} unread.${flip.current ? "\u00a0" : ""}`);
       }
       highestId.current = Math.max(highestId.current ?? 0, newest);
     } catch {
       if (seq !== requestSeq.current) return;
-      // After a good load, keep showing the last list through a short network blip.
       setStatus((current) => (current === "ready" ? current : "error"));
     }
   }, []);
@@ -78,18 +79,21 @@ function Bell() {
     return () => clearInterval(timer);
   }, [load]);
 
+  function closePanel(returnFocus = true) {
+    setOpen(false);
+    setFresh(new Set());
+    if (returnFocus) buttonRef.current?.focus();
+  }
+
   useEffect(() => {
     if (!open) return;
     const onPointer = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (rootRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
+      closePanel();
     };
     const onKey = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        buttonRef.current?.focus();
-      }
+      if (event.key === "Escape") closePanel();
     };
-    // pointerdown, not mousedown: iOS Safari does not fire mouse events for a tap on a non-clickable area.
     document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -98,25 +102,61 @@ function Bell() {
     };
   }, [open]);
 
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
+
   function toggle() {
-    if (open) return setOpen(false);
+    if (open) return closePanel();
     setTop(buttonRef.current.getBoundingClientRect().bottom + 8);
     const ids = items.filter((item) => !item.read).map((item) => item.id);
     setFresh(new Set(ids));
     setOpen(true);
-    setAnnouncement(""); // so the next new notification is announced even if the text repeats
-    if (!ids.length) return;
-    // Past the list limit some unread notices are off screen, so mark all up to the newest id seen; otherwise only
-    // those shown. Anything newer, such as a notice that arrived since the last poll, stays unread.
-    requestSeq.current++; // a poll already in flight would restore the old unread state
-    markNotificationsRead(unread > items.length ? "all" : ids, highestId.current)
+    setAnnouncement("");
+    if (!items.length) return;
+    const target = unread > ids.length ? "all" : ids;
+    if (target !== "all" && ids.length === 0) return;
+    requestSeq.current++;
+    markNotificationsRead(target, highestId.current)
       .then((data) => {
         setUnread(data.unread);
         setItems((previous) => previous.map((item) => (ids.includes(item.id) ? { ...item, read: true } : item)));
-        // More unread than the list explains means a notice arrived after the last poll; list it so the badge matches the panel.
-        if (data.unread > (unread > items.length ? 0 : unread - ids.length)) load();
+        if (data.unread > (target === "all" ? 0 : unread - ids.length)) load();
       })
-      .catch(() => {}); // they stay unread and the next poll shows the true count
+      .catch(() => {});
+  }
+
+  async function markOne(item) {
+    requestSeq.current++;
+    try {
+      const data = await markNotificationRead(item.id);
+      setUnread(data.unread);
+      setItems((previous) => previous.map((entry) => (entry.id === item.id ? { ...entry, read: true } : entry)));
+      setFresh((previous) => {
+        if (!previous.has(item.id)) return previous;
+        const next = new Set(previous);
+        next.delete(item.id);
+        return next;
+      });
+      if (data.unread > 0) load();
+    } catch {}
+  }
+
+  async function markAll() {
+    requestSeq.current++;
+    try {
+      const data = await markAllNotificationsRead();
+      setUnread(data.unread);
+      setItems((previous) => previous.map((item) => ({ ...item, read: true })));
+      setFresh(new Set());
+      if (data.unread > 0) load();
+    } catch {}
+  }
+
+  async function openItem(item) {
+    if (!item.read || fresh.has(item.id)) await markOne(item);
+    closePanel();
+    if (REQUEST_TYPES.has(item.type)) onNavigate?.();
   }
 
   function retry() {
@@ -137,25 +177,28 @@ function Bell() {
       </div>
     );
   } else if (items.length === 0) {
-    body = <p className="notif-note">No notifications yet. Updates on your borrow requests will appear here.</p>;
+    body = <p className="notif-note">No notifications yet.</p>;
   } else {
     body = (
       <ul className="notif-list">
         {items.map((item) => (
           <li key={item.id} className={fresh.has(item.id) ? "notif-item is-new" : "notif-item"}>
-            <div className="notif-meta">
-              <span className={`notif-chip notif-chip-${item.type}`}>{LABELS[item.type] ?? "Update"}</span>
-              <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>
-                {timeAgo(item.createdAt)}
-              </time>
-              {fresh.has(item.id) && <span className="sr-only">New.</span>}
-            </div>
-            <p className="notif-message">{item.message}</p>
-            {item.reason && (
-              <p className="notif-reason">
-                <span>Reason:</span> {item.reason}
-              </p>
-            )}
+            <button type="button" className="notif-item-button" onClick={() => openItem(item)}>
+              <span className="notif-item-title">{TITLES[item.type] ?? "Update"}</span>
+              <span className="notif-meta">
+                <span className={`notif-chip notif-chip-${item.type}`}>{LABELS[item.type] ?? "Update"}</span>
+                <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>
+                  {timeAgo(item.createdAt)}
+                </time>
+                {fresh.has(item.id) && <span className="sr-only">New.</span>}
+              </span>
+              <span className="notif-message">{item.message}</span>
+              {item.reason && (
+                <span className="notif-reason">
+                  <span>Reason:</span> {item.reason}
+                </span>
+              )}
+            </button>
           </li>
         ))}
       </ul>
@@ -170,7 +213,7 @@ function Bell() {
         className="notif-bell"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        aria-label={`Notifications, ${unread} unread`}
         onClick={toggle}
       >
         <BellIcon size={20} />
@@ -184,9 +227,27 @@ function Bell() {
         {announcement}
       </p>
       {open && (
-        <section id={panelId} className="notif-panel" aria-label="Notifications" style={{ "--notif-top": `${top}px` }}>
-          <h2 className="notif-title">Notifications</h2>
-          {body}
+        <section
+          id={panelId}
+          ref={panelRef}
+          className="notif-panel"
+          role="dialog"
+          aria-label="Notifications"
+          tabIndex={-1}
+          style={{ "--notif-top": `${top}px` }}
+        >
+          <div className="notif-panel-head">
+            <h2 className="notif-title">Notifications</h2>
+            <button type="button" className="notif-close" aria-label="Close notifications" onClick={() => closePanel()}>
+              ×
+            </button>
+          </div>
+          <div className="notif-mark-row">
+            <button type="button" className="notif-mark-all" onClick={markAll}>
+              Mark all as read
+            </button>
+          </div>
+          <div className="notif-scroll">{body}</div>
         </section>
       )}
     </div>

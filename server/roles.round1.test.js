@@ -16,7 +16,7 @@ import { ROLES } from "./rules.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const GOOD = "goodpass1";
-const ADMIN_PAGES = ["/dashboard", "/equipment/new", "/equipment/7/edit"];
+const ADMIN_PAGES = ["/dashboard", "/admin/requests", "/equipment/new", "/equipment/7/edit"];
 const USERS = {
   student: { id: 1, fullName: "Sok Dara", email: "sok.dara@student.cadt.edu.kh", role: "student" },
   faculty: { id: 2, fullName: "Keo Bopha", email: "keo.bopha@cadt.edu.kh", role: "faculty" },
@@ -297,7 +297,7 @@ test("ROLES matches the users table CHECK constraint exactly", () => {
 // README promise "The test fails until you do" does not hold. This test pulls the real counter out of roles.test.js.
 test("DEFECT: the route-count check misses an /api route added directly on the app", async (t) => {
   const src = readFileSync(join(ROOT, "server/roles.test.js"), "utf8");
-  const fn = /function countRouterRoutes[\s\S]*?\n}\n/.exec(src)?.[0];
+  const fn = /function countRouterRoutes[\s\S]*?\r?\n}\r?\n/.exec(src)?.[0];
   assert.ok(fn, "countRouterRoutes moved: import it here instead");
   const countRouterRoutes = new Function(`${fn}; return countRouterRoutes;`)();
 

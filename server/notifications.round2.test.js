@@ -53,7 +53,9 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 let bundled;
 async function loadBellModule() {
   if (bundled) return bundled;
+  const rootDir = fileURLToPath(new URL("../", import.meta.url));
   const virtual = {
+    entry: `export { default } from "./src/notifications/NotificationBell.jsx";`,
     react: `const R = () => globalThis.__R;
       export const useState = (v) => R().useState(v);
       export const useRef = (v) => R().useRef(v);
@@ -66,7 +68,7 @@ async function loadBellModule() {
     icons: "export const BellIcon = () => null;",
   };
   const result = await build({
-    entryPoints: [fileURLToPath(new URL("../src/notifications/NotificationBell.jsx", import.meta.url))],
+    entryPoints: ["entry"],
     bundle: true,
     write: false,
     format: "esm",
@@ -78,10 +80,11 @@ async function loadBellModule() {
       {
         name: "fakes",
         setup(b) {
+          b.onResolve({ filter: /^entry$/ }, () => ({ path: "entry", namespace: "v" }));
           b.onResolve({ filter: /^react$|^fake\/jsx-runtime$/ }, (a) => ({ path: a.path, namespace: "v" }));
           b.onResolve({ filter: /AuthContext\.jsx$/ }, () => ({ path: "auth", namespace: "v" }));
           b.onResolve({ filter: /Icons\.jsx$/ }, () => ({ path: "icons", namespace: "v" }));
-          b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js" }));
+          b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js", resolveDir: rootDir }));
         },
       },
     ],
@@ -103,7 +106,7 @@ const textOf = (node) =>
 
 // Mounts the bell for one signed-in user. Requests go to the real API with that user's cookie.
 async function mountBell(t, { root, cookie, userId }) {
-  const { default: NotificationBell } = await loadBellModule();
+  const { default: Root } = await loadBellModule();
   const R = { hooks: [], i: 0, pending: [], dirty: false, tree: null, auth: { user: { id: userId } } };
   R.useState = (init) => {
     const i = R.i++;
@@ -140,7 +143,7 @@ async function mountBell(t, { root, cookie, userId }) {
     const el = {
       type,
       props,
-      getBoundingClientRect: () => ({ bottom: 48 }),
+      getBoundingClientRect: () => ({ height: 48, bottom: 48 }),
       focus: () => (R.focused = el),
       contains: (target) => walk(el).includes(target),
     };
@@ -153,7 +156,7 @@ async function mountBell(t, { root, cookie, userId }) {
       R.dirty = false;
       R.i = 0;
       R.pending = [];
-      R.tree = NotificationBell({});
+      R.tree = Root({});
       R.pending.forEach((run) => run());
     }
   };
@@ -243,10 +246,10 @@ test("guard (fix 4): a poll answered before the mark-read is dropped, so the ope
   await bell.poll();
   await bell.click();
   assert.equal(unreadInDb(a.id), 0);
-  assert.equal(bell.label(), "Notifications");
+  assert.equal(bell.label(), "Notifications, 0 unread");
   assert.equal(bell.heldCount(), 1, "the poll answer is really parked");
   await bell.releaseAll(); // the stale "2 unread" answer lands after the mark-read
-  assert.equal(bell.label(), "Notifications", "a stale poll restored the old badge");
+  assert.equal(bell.label(), "Notifications, 0 unread", "a stale poll restored the old badge");
   assert.ok(bell.items().every((li) => li.props.className.includes("is-new")), "highlight stays until the panel closes");
 });
 
@@ -286,7 +289,7 @@ test("guard (fix 5): exactly 50 unread sends 50 ids, 51 unread sends { all: true
   const newestB = db.prepare("SELECT MAX(id) AS n FROM notifications WHERE user_id = ?").get(b.id).n;
   assert.deepEqual(bellB.sent.find((r) => r.method === "POST").body, { all: true, upTo: newestB });
   assert.equal(unreadInDb(b.id), 0);
-  assert.equal(bellB.label(), "Notifications");
+  assert.equal(bellB.label(), "Notifications, 0 unread");
 });
 
 test("guard: a session that ends mid-poll fires auth-expired, and the bell keeps no error state", async (t) => {

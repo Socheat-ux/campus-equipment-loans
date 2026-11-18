@@ -49,7 +49,9 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 let bundled;
 async function loadBellModule() {
   if (bundled) return bundled;
+  const rootDir = fileURLToPath(new URL("../", import.meta.url));
   const virtual = {
+    entry: `export { default } from "./src/notifications/NotificationBell.jsx";`,
     react: `const R = () => globalThis.__R;
       export const useState = (v) => R().useState(v);
       export const useRef = (v) => R().useRef(v);
@@ -62,7 +64,7 @@ async function loadBellModule() {
     icons: "export const BellIcon = () => null;",
   };
   const result = await build({
-    entryPoints: [fileURLToPath(new URL("../src/notifications/NotificationBell.jsx", import.meta.url))],
+    entryPoints: ["entry"],
     bundle: true,
     write: false,
     format: "esm",
@@ -74,10 +76,11 @@ async function loadBellModule() {
       {
         name: "fakes",
         setup(b) {
+          b.onResolve({ filter: /^entry$/ }, () => ({ path: "entry", namespace: "v" }));
           b.onResolve({ filter: /^react$|^fake\/jsx-runtime$/ }, (a) => ({ path: a.path, namespace: "v" }));
           b.onResolve({ filter: /AuthContext\.jsx$/ }, () => ({ path: "auth", namespace: "v" }));
           b.onResolve({ filter: /Icons\.jsx$/ }, () => ({ path: "icons", namespace: "v" }));
-          b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js" }));
+          b.onLoad({ filter: /.*/, namespace: "v" }, (a) => ({ contents: virtual[a.path], loader: "js", resolveDir: rootDir }));
         },
       },
     ],
@@ -99,7 +102,7 @@ const textOf = (node) =>
 
 // Mounts the bell for one signed-in user. Requests go to the real API with that user's cookie.
 async function mountBell(t, { root, cookie, userId, offline = () => false }) {
-  const { default: NotificationBell } = await loadBellModule();
+  const { default: Root } = await loadBellModule();
   const R = { hooks: [], i: 0, pending: [], dirty: false, tree: null, auth: { user: { id: userId } } };
   R.useState = (init) => {
     const i = R.i++;
@@ -136,7 +139,7 @@ async function mountBell(t, { root, cookie, userId, offline = () => false }) {
     const el = {
       type,
       props,
-      getBoundingClientRect: () => ({ bottom: 48 }),
+      getBoundingClientRect: () => ({ height: 48, bottom: 48 }),
       focus: () => (R.focused = el),
       contains: (target) => walk(el).includes(target),
     };
@@ -149,7 +152,7 @@ async function mountBell(t, { root, cookie, userId, offline = () => false }) {
       R.dirty = false;
       R.i = 0;
       R.pending = [];
-      R.tree = NotificationBell({});
+      R.tree = Root({});
       R.pending.forEach((run) => run());
     }
   };
@@ -385,7 +388,7 @@ test("DEFECT: when the panel is open, the badge never counts a notice the panel 
   await bell.click();
   const listed = bell.items().map(textOf).join(" | ");
   assert.ok(
-    bell.label() === "Notifications" || listed.includes("arrived after the last poll"),
+    bell.label() === "Notifications, 0 unread" || listed.includes("arrived after the last poll"),
     `badge says "${bell.label()}" but the open panel lists only: ${listed}`,
   );
 });

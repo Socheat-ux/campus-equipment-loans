@@ -1,0 +1,270 @@
+import { useCallback, useEffect, useState } from "react";
+import DashboardLayout from "../layouts/DashboardLayout.jsx";
+import Toast from "../components/equipment/Toast.jsx";
+import { ErrorText } from "../auth/AuthUI.jsx";
+import { formatDate } from "../equipment/cards.js";
+import { REJECTION_REASON_MAX } from "../../server/rules.js";
+import {
+  approveBorrowRequest,
+  listAdminBorrowRequests,
+  rejectBorrowRequest,
+} from "../borrowRequests/adminApi.js";
+
+const FILTERS = [
+  { key: "pending", label: "Pending" },
+  { key: "approved", label: "Approved" },
+  { key: "rejected", label: "Rejected" },
+];
+
+const EMPTY_COUNTS = { pending: 0, approved: 0, rejected: 0 };
+
+export default function AdminBorrowRequests() {
+  const [status, setStatus] = useState("pending");
+  const [data, setData] = useState({ requests: [], counts: EMPTY_COUNTS });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState(null);
+  const [review, setReview] = useState(null);
+  const [stage, setStage] = useState("review");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async (nextStatus) => {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await listAdminBorrowRequests(nextStatus));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load(status);
+  }, [load, status]);
+
+  const closeReview = () => {
+    if (busy) return;
+    setReview(null);
+    setStage("review");
+    setReason("");
+  };
+
+  const openReview = (request) => {
+    setReview(request);
+    setStage("review");
+    setReason("");
+  };
+
+  const decide = async (decision) => {
+    if (!review || busy) return;
+    const trimmed = reason.trim();
+    if (decision === "reject" && !trimmed) {
+      setToast({ type: "error", message: "A reason is required." });
+      return;
+    }
+    setBusy(true);
+    try {
+      if (decision === "approve") await approveBorrowRequest(review.id);
+      else await rejectBorrowRequest(review.id, trimmed);
+      setToast({ type: "success", message: decision === "approve" ? "Request approved." : "Request rejected." });
+      setReview(null);
+      setStage("review");
+      setReason("");
+      await load(status);
+    } catch (err) {
+      setToast({ type: "error", message: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pending = data.counts.pending ?? 0;
+
+  return (
+    <DashboardLayout active="requests">
+      <div className="dash-page">
+        <nav className="dash-breadcrumb" aria-label="Breadcrumb">
+          <span>Home</span>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Borrow requests</span>
+        </nav>
+
+        <div className="dash-page-head">
+          <div>
+            <h1>Borrow requests</h1>
+            <p>{pending} requests are waiting for your review.</p>
+          </div>
+        </div>
+
+        <section className="dash-panel dash-requests-panel" aria-labelledby="borrow-requests-title">
+          <div className="dash-panel-head">
+            <div>
+              <h2 id="borrow-requests-title">Requests</h2>
+              <p>Approve or reject equipment loans submitted by students and faculty.</p>
+            </div>
+            <div className="dash-request-filters" role="group" aria-label="Filter requests by status">
+              {FILTERS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`dash-filter-pill${status === key ? " is-active" : ""}`}
+                  aria-pressed={status === key}
+                  onClick={() => {
+                    setStatus(key);
+                    closeReview();
+                  }}
+                >
+                  {label}
+                  <span>{data.counts[key] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loading && <p className="dash-empty">Loading requests…</p>}
+
+          {!loading && error && (
+            <div className="dash-empty">
+              <ErrorText>{error}</ErrorText>
+              <button type="button" className="dash-clear-btn" onClick={() => load(status)}>
+                Try again
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && data.requests.length === 0 && (
+            <p className="dash-empty">No {status} requests.</p>
+          )}
+
+          {!loading && !error && data.requests.length > 0 && (
+            <div className="dash-table-wrap">
+              <table className="dash-table dash-requests-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Requester</th>
+                    <th scope="col">Item</th>
+                    <th scope="col">Borrow date</th>
+                    <th scope="col">Return by</th>
+                    <th scope="col">Stock</th>
+                    <th scope="col" className="dash-actions-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.requests.map((request) => (
+                    <tr key={request.id}>
+                      <td>
+                        <strong>{request.requesterName}</strong>
+                        <small>{request.requesterRole}</small>
+                      </td>
+                      <td>
+                        <strong>{request.equipmentName}</strong>
+                        <small>{request.equipmentAssetId}</small>
+                      </td>
+                      <td>{formatDate(request.borrowDate)}</td>
+                      <td>{formatDate(request.returnDate)}</td>
+                      <td>{request.stock}</td>
+                      <td className="dash-actions-col">
+                        {request.status === "pending" ? (
+                          <div className="dash-request-actions">
+                            <button type="button" className="dash-reject-btn" disabled={busy} onClick={() => openReview(request)}>
+                              Reject
+                            </button>
+                            <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
+                              Approve
+                            </button>
+                          </div>
+                        ) : (
+                          <span aria-label="No actions available">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {review && (
+        <div
+          className="dash-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeReview();
+          }}
+        >
+          <section className="dash-review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
+            <div className="dash-drawer-head">
+              <div>
+                <h2 id="review-title">Review request</h2>
+                <p>{review.requesterName} · {review.equipmentName}</p>
+              </div>
+              <button type="button" className="dash-drawer-close" aria-label="Close review dialog" onClick={closeReview} disabled={busy}>
+                ×
+              </button>
+            </div>
+
+            <div className="dash-drawer-body">
+              {stage === "review" ? (
+                <>
+                  <dl className="dash-review-details">
+                    <div><dt>Requester</dt><dd>{review.requesterName}</dd></div>
+                    <div><dt>Item</dt><dd>{review.equipmentName} ({review.equipmentAssetId})</dd></div>
+                    <div><dt>Borrow date</dt><dd>{formatDate(review.borrowDate)}</dd></div>
+                    <div><dt>Return by</dt><dd>{formatDate(review.returnDate)}</dd></div>
+                    <div><dt>Purpose</dt><dd>{review.purpose || "—"}</dd></div>
+                  </dl>
+                  <p className="dash-review-note">{review.stock} in stock. Approving reserves this item for the borrow dates.</p>
+                </>
+              ) : (
+                <>
+                  <p className="dash-review-note">Rejecting {review.equipmentName} for {review.requesterName}.</p>
+                  <div className="field dash-reason-field">
+                    <label htmlFor="reject-reason">Reason for rejection (shown to the student)</label>
+                    <textarea
+                      id="reject-reason"
+                      value={reason}
+                      maxLength={REJECTION_REASON_MAX}
+                      rows={5}
+                      required
+                      onChange={(event) => setReason(event.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="dash-drawer-foot">
+              {stage === "review" ? (
+                <>
+                  <button type="button" className="btn-outline" onClick={closeReview} disabled={busy}>Cancel</button>
+                  <button type="button" className="dash-reject-btn" onClick={() => setStage("reject")} disabled={busy}>Reject</button>
+                  <button type="button" className="btn-primary dash-save-btn" onClick={() => decide("approve")} disabled={busy}>
+                    Approve request
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="btn-outline" onClick={() => setStage("review")} disabled={busy}>Back</button>
+                  <button
+                    type="button"
+                    className="dash-danger-btn"
+                    onClick={() => decide("reject")}
+                    disabled={busy || !reason.trim()}
+                  >
+                    Confirm rejection
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
+    </DashboardLayout>
+  );
+}

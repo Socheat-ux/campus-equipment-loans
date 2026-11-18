@@ -1,40 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext.jsx";
 import { listEquipment } from "../equipment/api.js";
-import NotificationBell from "../notifications/NotificationBell.jsx";
-import { roleName } from "../auth/access.js";
-
-const CATEGORY_IMAGES = {
-  Laptop: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=800",
-  Camera: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=800",
-  Projector: "https://images.unsplash.com/photo-1535016120720-40c646be5580?w=800",
-  Audio: "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=800",
-  Networking: "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?w=800",
-  Lab: "https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=800",
-  Accessories: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=800",
-  Other: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=800",
-};
-
-// The catalogue only stores name, category and quantity, so the card details
-// that the design calls for are derived here.
-function asCard(item) {
-  return {
-    id: item.id,
-    name: item.name,
-    category: item.category,
-    image: CATEGORY_IMAGES[item.category] ?? CATEGORY_IMAGES.Other,
-    description: `${item.category} equipment available for student borrowing.`,
-    assetId: `EQ-${String(item.id).padStart(4, "0")}`,
-    location: "Library Tech Hub",
-    available: item.quantity > 0,
-    stock: item.quantity,
-    maxDays: 7,
-  };
-}
+import { asCard } from "../equipment/cards.js";
+import StudentHeader from "../components/StudentHeader.jsx";
 
 export default function HomePage() {
-  const { user, logout } = useAuth();
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -81,56 +51,9 @@ export default function HomePage() {
     });
   }, [equipment, search, category, availableOnly]);
 
-  const handleBorrow = (item) => {
-    alert(`Borrow request started for: ${item.name}`);
-  };
-
   return (
     <div className="student-home">
-      <header className="home-header">
-        <div className="header-brand">
-          <div className="brand-logo">CG</div>
-          <div>
-            <h2>Campus Gear</h2>
-            <p>Equipment Loan System</p>
-          </div>
-        </div>
-
-        <nav className="header-nav">
-          <Link to="/" className="active">
-            Catalog
-          </Link>
-          {user?.role === "admin" && <Link to="/dashboard">Dashboard</Link>}
-        </nav>
-
-        <div className="header-profile">
-          {user ? (
-            <>
-              <NotificationBell />
-              <span className="header-profile-text">
-                <strong>{user.fullName}</strong>
-                <small>{roleName(user.role)}</small>
-              </span>
-              <button
-                type="button"
-                className="profile-link profile-logout"
-                onClick={() => logout().catch(() => {})}
-              >
-                Log out
-              </button>
-            </>
-          ) : (
-            <>
-              <Link className="profile-link" to="/login">
-                Log in
-              </Link>
-              <Link className="profile-signup" to="/signup">
-                Create account
-              </Link>
-            </>
-          )}
-        </div>
-      </header>
+      <StudentHeader active="catalog" />
 
       <main className="home-container">
         <section className="welcome-section">
@@ -238,15 +161,15 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <button
-                    className="borrow-button"
-                    disabled={!item.available}
-                    onClick={() => handleBorrow(item)}
-                  >
-                    {item.available
-                      ? "✓ Request Borrow"
-                      : "Currently Unavailable"}
-                  </button>
+                  {item.available ? (
+                    <Link className="borrow-button" to={`/requests/new?equipmentId=${item.id}`}>
+                      ✓ Request Borrow
+                    </Link>
+                  ) : (
+                    <button className="borrow-button" type="button" disabled>
+                      Currently Unavailable
+                    </button>
+                  )}
                 </div>
               </article>
             ))}
