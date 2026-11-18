@@ -395,6 +395,27 @@
   border-radius: 8px;
 }
 .dash-edit-btn:hover { background: #e2eeff; }
+.dash-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dash-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #b42318;
+  cursor: pointer;
+  background: #fff5f4;
+  border: 1px solid #f1c7c3;
+  border-radius: 8px;
+}
+.dash-delete-btn:hover { background: #ffe8e5; }
 .dash-empty { padding: 44px 22px !important; color: var(--dash-muted); text-align: center; }
 
 .dash-panel-foot {

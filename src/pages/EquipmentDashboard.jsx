@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createEquipment, listEquipment, updateEquipment } from "../equipment/api.js";
+import { createEquipment, deleteEquipment, listEquipment, updateEquipment } from "../equipment/api.js";
 import { EQUIPMENT_CATEGORIES } from "../../server/rules.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import DashboardLayout from "../layouts/DashboardLayout.jsx";
@@ -8,10 +8,12 @@ import Toast from "../components/equipment/Toast.jsx";
 import {
   CategoryIcon,
   CheckCircleIcon,
+  CloseIcon,
   EditIcon,
   EquipmentIcon,
   PlusIcon,
   SearchIcon,
+  TrashIcon,
 } from "../components/Icons.jsx";
 
 const PAGE_SIZE = 8;
@@ -44,14 +46,28 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [drawer, setDrawer] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState(null);
 
   const closeToast = useCallback(() => setToast(null), []);
   const closeDrawer = useCallback(() => setDrawer(null), []);
+  const closeDeleteModal = useCallback(() => {
+    if (!deleting) setDeleteTarget(null);
+  }, [deleting]);
 
   useEffect(() => {
     setPage(1);
   }, [search, category, status]);
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") closeDeleteModal();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [deleteTarget, closeDeleteModal]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +139,22 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
       setToast({ type: "success", message: `“${values.name}” was added to the catalogue.` });
     }
     setDrawer(null);
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      if (!preview) await deleteEquipment(deleteTarget.id);
+      setItems((previous) => previous.filter((item) => item.id !== deleteTarget.id));
+      setToast({ type: "success", message: `“${deleteTarget.name}” was deleted from the catalogue.` });
+      setDeleteTarget(null);
+    } catch (err) {
+      setToast({ type: "error", message: err.message });
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -253,14 +285,25 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
                     </td>
                     {isAdmin && (
                       <td className="dash-actions-col">
-                        <button
-                          type="button"
-                          className="dash-edit-btn"
-                          onClick={() => setDrawer({ mode: "edit", item })}
-                        >
-                          <EditIcon size={15} />
-                          Edit
-                        </button>
+                        <div className="dash-row-actions">
+                          <button
+                            type="button"
+                            className="dash-edit-btn"
+                            onClick={() => setDrawer({ mode: "edit", item })}
+                          >
+                            <EditIcon size={15} />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="dash-delete-btn"
+                            aria-label={`Delete ${item.name}`}
+                            onClick={() => setDeleteTarget(item)}
+                          >
+                            <TrashIcon size={15} />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -330,6 +373,50 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
           onClose={closeDrawer}
           onSave={handleSave}
         />
+      )}
+
+      {isAdmin && deleteTarget && (
+        <div className="dash-dialog-backdrop" onMouseDown={closeDeleteModal}>
+          <div
+            className="dash-review-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-equipment-title"
+            aria-describedby="delete-equipment-desc"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dash-drawer-head">
+              <div>
+                <h2 id="delete-equipment-title">Delete equipment</h2>
+                <p id="delete-equipment-desc">
+                  Are you sure you want to delete <strong>{deleteTarget.name}</strong> (ID #{deleteTarget.id})? This action cannot be undone.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="dash-drawer-close"
+                aria-label="Close"
+                disabled={deleting}
+                onClick={closeDeleteModal}
+              >
+                <CloseIcon size={19} />
+              </button>
+            </div>
+            <div className="dash-drawer-foot">
+              <button type="button" className="btn-outline" disabled={deleting} onClick={closeDeleteModal}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dash-danger-btn"
+                disabled={deleting}
+                onClick={handleConfirmDelete}
+              >
+                {deleting ? "Deleting..." : "Delete equipment"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <Toast toast={toast} onClose={closeToast} />
