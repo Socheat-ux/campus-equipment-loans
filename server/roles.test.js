@@ -20,13 +20,16 @@ const ROUTES = [
   ["GET", "/api/equipment/1", "public"],
   ["POST", "/api/equipment", "admin"],
   ["PUT", "/api/equipment/1", "admin"],
+  ["DELETE", "/api/equipment/1", "admin"],
   ["GET", "/api/borrow-requests", "borrower"],
   ["GET", "/api/borrow-requests/1", "borrower"],
   ["POST", "/api/borrow-requests", "borrower"],
+  ["POST", "/api/borrow-requests/1/cancel", "borrower"],
   ["GET", "/api/admin/borrow-requests", "admin"],
   ["POST", "/api/admin/borrow-requests/1/approve", "admin"],
   ["POST", "/api/admin/borrow-requests/1/reject", "admin"],
   ["POST", "/api/admin/borrow-requests/1/return", "admin"],
+  ["POST", "/api/admin/borrow-requests/1/cancel", "admin"],
   ["GET", "/api/admin/overdue", "admin"],
   ["GET", "/api/notifications", "signed-in"],
   ["POST", "/api/notifications/read", "signed-in"],
@@ -102,6 +105,10 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
   };
   const seeds = {
     "/api/borrow-requests/1": (who) => {
+      if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
+      seedRequest(who);
+    },
+    "/api/borrow-requests/1/cancel": (who) => {
       if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
       seedRequest(who);
     },

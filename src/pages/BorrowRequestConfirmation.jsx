@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import StudentHeader from "../components/StudentHeader.jsx";
 import StatusBadge from "../borrowRequests/StatusBadge.jsx";
-import { getBorrowRequest } from "../borrowRequests/api.js";
+import { getBorrowRequest, cancelBorrowRequest } from "../borrowRequests/api.js";
 import { formatDate } from "../equipment/cards.js";
 import { CheckCircleIcon } from "../components/Icons.jsx";
 import { ErrorText } from "../auth/AuthUI.jsx";
@@ -14,6 +14,11 @@ export default function BorrowRequestConfirmation() {
   const [request, setRequest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonError, setCancelReasonError] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -36,6 +41,32 @@ export default function BorrowRequestConfirmation() {
     // stateRequest is only a fallback after a failed load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  const submitCancel = async (e) => {
+    e.preventDefault();
+    const reason = cancelReason.trim();
+    if (!reason) {
+      setCancelReasonError("Reason is required.");
+      return;
+    }
+    if (reason.length > 300) {
+      setCancelReasonError("Reason must be 300 characters or fewer.");
+      return;
+    }
+    setCancelReasonError("");
+    setCancelError("");
+    setCancelling(true);
+    try {
+      const updated = await cancelBorrowRequest(id, reason);
+      setRequest(updated);
+      setCancelOpen(false);
+      setCancelReason("");
+    } catch (err) {
+      setCancelError(err.message || "Could not cancel request.");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className="student-home">
@@ -82,6 +113,24 @@ export default function BorrowRequestConfirmation() {
               </div>
             </dl>
 
+            {request.status === "pending" && (
+              <div className="confirmation-actions" style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn-request-secondary"
+                  onClick={() => {
+                    setCancelOpen(true);
+                    setCancelReason("");
+                    setCancelReasonError("");
+                    setCancelError("");
+                  }}
+                >
+                  Cancel request
+                </button>
+              </div>
+            )}
+            {cancelError && <p className="request-note"><ErrorText>{cancelError}</ErrorText></p>}
+
             <div className="confirmation-actions">
               <Link className="btn-request-secondary" to="/">
                 Back to catalog
@@ -94,6 +143,36 @@ export default function BorrowRequestConfirmation() {
                 View my requests
               </Link>
             </div>
+
+            {cancelOpen && (
+              <div className="request-card" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+                <div className="request-card" style={{ maxWidth: 480, width: "100%", background: "#fff" }}>
+                  <h2 style={{ marginTop: 0 }}>Cancel request</h2>
+                  <p className="request-note">Why do you want to cancel this request for <strong>{request.equipmentName}</strong>?</p>
+                  <form onSubmit={submitCancel}>
+                    <label className="field-label" htmlFor="cancel-reason-confirm">Reason</label>
+                    <textarea
+                      id="cancel-reason-confirm"
+                      className="request-textarea"
+                      rows={4}
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      maxLength={300}
+                      placeholder="Enter reason"
+                    />
+                    {cancelReasonError && <ErrorText>{cancelReasonError}</ErrorText>}
+                    <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                      <button type="submit" className="btn-request-primary" disabled={cancelling}>
+                        {cancelling ? "Cancelling..." : "Submit cancellation"}
+                      </button>
+                      <button type="button" className="btn-request-secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>
+                        Keep request
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </main>

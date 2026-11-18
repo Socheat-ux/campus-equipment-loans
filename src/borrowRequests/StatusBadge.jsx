@@ -3,6 +3,7 @@ export const STATUS_LABELS = {
   approved: "Approved",
   rejected: "Rejected",
   returned: "Returned",
+  cancelled: "Cancelled",
 };
 
 export default function StatusBadge({ status }) {

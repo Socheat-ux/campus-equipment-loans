@@ -4,7 +4,7 @@ import { withTransaction } from "./db.js";
 import { addDaysISO, REJECTION_REASON_MAX, todayISO } from "./rules.js";
 
 // Add new kinds here, for example "due_soon" and "overdue" for the reminder stories.
-export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected", "due_soon", "request_returned"];
+export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected", "due_soon", "request_returned", "request_cancelled"];
 export const MESSAGE_MAX = 300;
 export const REASON_MAX = REJECTION_REASON_MAX;
 export const LIST_LIMIT = 50;
@@ -14,6 +14,7 @@ const TITLES = {
   request_rejected: "Request rejected",
   due_soon: "Return due tomorrow",
   request_returned: "Equipment returned",
+  request_cancelled: "Request cancelled",
 };
 
 // Server code calls this, inside withTransaction(db, ...) together with the change it reports.

@@ -64,5 +64,22 @@ export function equipmentRouter(db) {
     res.json({ equipment: asEquipment(row) });
   });
 
+  router.delete("/:id", (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: "Equipment not found." });
+    const existing = db.prepare("SELECT id FROM equipment WHERE id = ?").get(id);
+    if (!existing) return res.status(404).json({ error: "Equipment not found." });
+
+    const linkedRequest = db.prepare("SELECT id FROM borrow_requests WHERE equipment_id = ? LIMIT 1").get(existing.id);
+    if (linkedRequest) {
+      return res.status(409).json({
+        error: "Cannot delete equipment that has existing borrow requests.",
+      });
+    }
+
+    db.prepare("DELETE FROM equipment WHERE id = ?").run(existing.id);
+    res.status(204).end();
+  });
+
   return router;
 }

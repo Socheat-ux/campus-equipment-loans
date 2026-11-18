@@ -29,3 +29,5 @@ export const rejectBorrowRequest = (id, reason) =>
   request(`/${encodeURIComponent(id)}/reject`, { method: "POST", body: { reason } }).then((data) => data.request);
 export const returnBorrowRequest = (id) =>
   request(`/${encodeURIComponent(id)}/return`, { method: "POST", body: {} }).then((data) => data.request);
+export const cancelBorrowRequestAdmin = (id, reason) =>
+  request(`/${encodeURIComponent(id)}/cancel`, { method: "POST", body: reason ? { reason } : {} }).then((data) => data.request);

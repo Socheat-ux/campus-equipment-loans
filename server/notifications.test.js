@@ -61,11 +61,13 @@ test("notify refuses bad input and stores a reason only on rejections", async (t
   withTransaction(db, () => {
     notify(db, { userId: id, type: "request_approved", message: " Approved ", reason: "ignored" });
     notify(db, { userId: id, type: "request_rejected", message: "Rejected", reason: "  Item is under repair.  " });
+    notify(db, { userId: id, type: "request_cancelled", message: " Cancelled " });
   });
   const rows = db.prepare("SELECT type, message, reason FROM notifications ORDER BY id").all();
   assert.deepEqual(rows.map((r) => ({ ...r })), [
     { type: "request_approved", message: "Approved", reason: null },
     { type: "request_rejected", message: "Rejected", reason: "Item is under repair." },
+    { type: "request_cancelled", message: "Cancelled", reason: null },
   ]);
 });
 

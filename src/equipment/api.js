@@ -28,3 +28,4 @@ export const getEquipment = (id) => request(`/${encodeURIComponent(id)}`).then((
 export const createEquipment = (input) => request("/", { method: "POST", body: input }).then((data) => data.equipment);
 export const updateEquipment = (id, input) =>
   request(`/${encodeURIComponent(id)}`, { method: "PUT", body: input }).then((data) => data.equipment);
+export const deleteEquipment = (id) => request(`/${encodeURIComponent(id)}`, { method: "DELETE" });
