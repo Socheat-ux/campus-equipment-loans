@@ -7,7 +7,7 @@ import { borrowRequestInput } from "./rules.js";
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.category AS equipment_category,
          e.location AS equipment_location,
-         r.user_id, r.borrow_date, r.return_date, r.purpose, r.status, r.created_at, r.decision_reason
+         r.user_id, r.borrow_date, r.return_date, r.purpose, r.status, r.created_at, r.decision_reason, r.returned_at
   FROM borrow_requests r JOIN equipment e ON e.id = r.equipment_id`;
 
 const asRequest = (row) => ({
@@ -23,6 +23,7 @@ const asRequest = (row) => ({
   status: row.status,
   createdAt: row.created_at,
   decisionReason: row.decision_reason,
+  returnedAt: row.returned_at,
 });
 
 export function borrowRequestsRouter(db) {

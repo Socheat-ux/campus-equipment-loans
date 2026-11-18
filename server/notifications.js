@@ -1,13 +1,20 @@
 import { Router } from "express";
 import { requireAuth } from "./auth.js";
 import { withTransaction } from "./db.js";
-import { REJECTION_REASON_MAX } from "./rules.js";
+import { addDaysISO, REJECTION_REASON_MAX, todayISO } from "./rules.js";
 
 // Add new kinds here, for example "due_soon" and "overdue" for the reminder stories.
-export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected"];
+export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "request_rejected", "due_soon", "request_returned"];
 export const MESSAGE_MAX = 300;
 export const REASON_MAX = REJECTION_REASON_MAX;
 export const LIST_LIMIT = 50;
+const TITLES = {
+  request_submitted: "Request submitted",
+  request_approved: "Request approved",
+  request_rejected: "Request rejected",
+  due_soon: "Return due tomorrow",
+  request_returned: "Equipment returned",
+};
 
 // Server code calls this, inside withTransaction(db, ...) together with the change it reports.
 // Only server code calls it, so bad input is a bug and throws instead of answering 400.
@@ -33,10 +40,10 @@ export function notify(db, { userId, type, message, reason, requestId, createdAt
 
   const info = db
     .prepare(
-      `INSERT INTO notifications (user_id, type, message, reason, request_id, created_at)
-       VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`,
+      `INSERT INTO notifications (user_id, type, title, message, reason, request_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`,
     )
-    .run(userId, type, text, why, requestId ?? null, createdAt ?? null);
+    .run(userId, type, TITLES[type], text, why, requestId ?? null, createdAt ?? null);
   return Number(info.lastInsertRowid);
 }
 
@@ -44,6 +51,37 @@ export function notifyAdmins(db, { type, message, reason, requestId, createdAt }
   const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id").all();
   for (const admin of admins) notify(db, { userId: admin.id, type, message, reason, requestId, createdAt });
   return admins.length;
+}
+
+// Called while loading the user's bell. The unique per-user/request check makes polling safe to repeat.
+export function processDueReminders(db, today = todayISO()) {
+  const dueDate = addDaysISO(today, 1);
+  if (!dueDate) return 0;
+  const loans = db.prepare(`
+    SELECT r.id, r.user_id, e.name AS equipment_name, r.return_date
+    FROM borrow_requests r JOIN equipment e ON e.id = r.equipment_id
+    WHERE r.status = 'approved' AND r.return_date = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM notifications n WHERE n.user_id = r.user_id AND n.request_id = r.id AND n.type = 'due_soon'
+      )
+    ORDER BY r.id
+  `).all(dueDate);
+  if (!loans.length) return 0;
+  return withTransaction(db, () => {
+    let added = 0;
+    for (const loan of loans) {
+      const exists = db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND request_id = ? AND type = 'due_soon'").get(loan.user_id, loan.id);
+      if (exists) continue;
+      notify(db, {
+        userId: loan.user_id,
+        type: "due_soon",
+        message: `Return ${loan.equipment_name} by ${loan.return_date}.`,
+        requestId: loan.id,
+      });
+      added++;
+    }
+    return added;
+  });
 }
 
 // Requests submitted before an admin existed (or before admin notices were added) still need to show in the bell.
@@ -108,6 +146,7 @@ export function notificationsRouter(db) {
     db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
 
   router.get("/", (req, res) => {
+    processDueReminders(db);
     if (req.user.role === "admin") backfillAdminRequestNotifications(db, req.user.id);
     const rows = db
       .prepare(

@@ -39,6 +39,7 @@ export function openDb(path) {
       return_date TEXT NOT NULL,
       purpose TEXT,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'returned')),
+      returned_at TEXT,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
     CREATE INDEX IF NOT EXISTS borrow_requests_user_id ON borrow_requests (user_id, id);
@@ -47,6 +48,7 @@ export function openDb(path) {
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
       message TEXT NOT NULL,
       reason TEXT,
       request_id INTEGER,
@@ -76,8 +78,11 @@ export function openDb(path) {
   if (!requestColumns.has("decided_by")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decided_by INTEGER");
   if (!requestColumns.has("decided_at")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decided_at TEXT");
   if (!requestColumns.has("decision_reason")) db.exec("ALTER TABLE borrow_requests ADD COLUMN decision_reason TEXT");
+  if (!requestColumns.has("returned_at")) db.exec("ALTER TABLE borrow_requests ADD COLUMN returned_at TEXT");
 
   const notificationColumns = new Set(db.prepare("PRAGMA table_info(notifications)").all().map((col) => col.name));
+  if (!notificationColumns.has("title")) db.exec("ALTER TABLE notifications ADD COLUMN title TEXT NOT NULL DEFAULT ''");
+  if (!notificationColumns.has("reason")) db.exec("ALTER TABLE notifications ADD COLUMN reason TEXT");
   if (!notificationColumns.has("request_id")) db.exec("ALTER TABLE notifications ADD COLUMN request_id INTEGER");
 
   return db;

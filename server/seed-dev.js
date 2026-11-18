@@ -4,7 +4,7 @@
 import { pathToFileURL } from "node:url";
 import { openDb, withTransaction } from "./db.js";
 import { hashPassword } from "./auth.js";
-import { displayName } from "./rules.js";
+import { addDaysISO, displayName, todayISO } from "./rules.js";
 import { notify } from "./notifications.js";
 
 export const TEST_PASSWORD = "testpass123";
@@ -46,8 +46,20 @@ export async function seedTestAccounts(db) {
   for (const { email, role } of TEST_ACCOUNTS) {
     upsert.run(email, displayName(email), role, await hashPassword(TEST_PASSWORD));
   }
-  // Two sample notices for the test student, so the bell has something to show before approvals exist.
+  // One clearly marked approved loan gives the admin dashboard an overdue row to demonstrate.
   const studentId = db.prepare("SELECT id FROM users WHERE email = ?").get(TEST_ACCOUNTS[0].email).id;
+  const demoPurpose = "DEMO: overdue loan sample";
+  const exists = db.prepare("SELECT 1 FROM borrow_requests WHERE user_id = ? AND purpose = ?").get(studentId, demoPurpose);
+  const laptop = db.prepare("SELECT id, quantity FROM equipment WHERE name = 'Dell Latitude 5440 Laptop' ORDER BY id LIMIT 1").get();
+  if (!exists && laptop?.quantity > 0) {
+    const today = todayISO();
+    withTransaction(db, () => {
+      db.prepare("UPDATE equipment SET quantity = quantity - 1 WHERE id = ?").run(laptop.id);
+      db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, purpose, status) VALUES (?, ?, ?, ?, ?, 'approved')")
+        .run(laptop.id, studentId, addDaysISO(today, -14), addDaysISO(today, -7), demoPurpose);
+    });
+  }
+  // Two sample notices for the test student, so the bell has something to show before approvals exist.
   if (db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?").get(studentId).n === 0) {
     withTransaction(db, () => {
       for (const notice of SAMPLE_NOTIFICATIONS) notify(db, { userId: studentId, ...notice });

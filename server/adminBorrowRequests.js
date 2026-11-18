@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { rejectionReasonError } from "./rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, rejectionReasonError } from "./rules.js";
 
 const STATUSES = ["pending", "approved", "rejected"];
 
@@ -11,7 +11,7 @@ const selectColumns = `
          e.location AS equipment_location, e.quantity AS stock,
          r.user_id, u.full_name AS requester_name, u.role AS requester_role,
          r.borrow_date, r.return_date, r.purpose, r.status, r.created_at,
-         r.decided_by, r.decided_at, r.decision_reason
+         r.decided_by, r.decided_at, r.decision_reason, r.returned_at
   FROM borrow_requests r
   JOIN equipment e ON e.id = r.equipment_id
   JOIN users u ON u.id = r.user_id`;
@@ -34,6 +34,7 @@ const asAdminRequest = (row) => ({
   decidedBy: row.decided_by,
   decidedAt: row.decided_at,
   decisionReason: row.decision_reason,
+  returnedAt: row.returned_at,
 });
 
 class ConflictError extends Error {}
@@ -90,7 +91,11 @@ export function adminBorrowRequestsRouter(db) {
           decidedAt,
           equipment.id,
         );
-        db.prepare("UPDATE borrow_requests SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ?").run(
+        const returnDate = addDaysISO(current.borrow_date, BORROW_MAX_DAYS);
+        db.prepare(
+          "UPDATE borrow_requests SET status = 'approved', return_date = ?, decided_by = ?, decided_at = ? WHERE id = ?",
+        ).run(
+          returnDate,
           req.user.id,
           decidedAt,
           id,
@@ -98,7 +103,7 @@ export function adminBorrowRequestsRouter(db) {
         notify(db, {
           userId: current.user_id,
           type: "request_approved",
-          message: `Request approved. ${equipment.name} is ready for pickup at ${equipment.location} on ${current.borrow_date}.`,
+          message: `Request approved. ${equipment.name} is ready for pickup at ${equipment.location} on ${current.borrow_date}; return by ${returnDate}.`,
         });
       });
     } catch (err) {
@@ -131,6 +136,38 @@ export function adminBorrowRequestsRouter(db) {
           type: "request_rejected",
           message: `Request rejected. ${equipment.name}. See the reason in My requests.`,
           reason,
+        });
+      });
+    } catch (err) {
+      return sendConflict(res, err);
+    }
+    return res.json({ request: asAdminRequest(findRequest(id)) });
+  });
+
+  router.post("/:id/return", (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(404).json({ error: "Request not found." });
+    const request = findRequest(id);
+    if (!request) return res.status(404).json({ error: "Request not found." });
+    if (request.status !== "approved") {
+      return res.status(409).json({ error: "Only approved loans can be marked returned." });
+    }
+
+    try {
+      withTransaction(db, () => {
+        const current = currentRequest(id);
+        if (!current || current.status !== "approved") throw conflict("Only approved loans can be marked returned.");
+        const returnedAt = new Date().toISOString();
+        db.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
+        db.prepare("UPDATE equipment SET quantity = quantity + 1, updated_at = ? WHERE id = ?").run(
+          returnedAt,
+          current.equipment_id,
+        );
+        notify(db, {
+          userId: current.user_id,
+          type: "request_returned",
+          message: `Equipment returned: ${request.equipment_name}.`,
+          requestId: id,
         });
       });
     } catch (err) {

@@ -84,6 +84,7 @@ test("an admin sees pending requests with requester, item and stock details plus
     decidedBy: null,
     decidedAt: null,
     decisionReason: null,
+    returnedAt: null,
   });
 
   for (const status of ["approved", "rejected"]) {
@@ -108,6 +109,8 @@ test("approval records the decision, reserves one item and notifies the student"
   assert.equal(decided.decidedBy, admin.id);
   assert.match(decided.decidedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(decided.decisionReason, null);
+  assert.equal(decided.returnDate, request.returnDate);
+  assert.equal(decided.returnedAt, null);
   assert.equal(decided.stock, 1);
   assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 1);
 
@@ -115,7 +118,10 @@ test("approval records the decision, reserves one item and notifies the student"
     .prepare("SELECT type, message, reason FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
     .get(student.id);
   assert.equal(notice.type, "request_approved");
-  assert.equal(notice.message, `Request approved. Dell Latitude is ready for pickup at Main store on ${request.borrowDate}.`);
+  assert.equal(
+    notice.message,
+    `Request approved. Dell Latitude is ready for pickup at Main store on ${request.borrowDate}; return by ${request.returnDate}.`,
+  );
   assert.equal(notice.reason, null);
 
   const again = await call("POST", `/api/admin/borrow-requests/${request.id}/approve`, {}, admin.cookie);

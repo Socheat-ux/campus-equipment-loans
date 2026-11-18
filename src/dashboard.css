@@ -656,6 +656,8 @@
 }
 
 /* responsive */
+.overdue-count { color: #b42318; font-size: 0.85rem; }
+.overdue-late { display: inline-block; padding: 4px 9px; color: #b42318; background: #fff0ee; border-radius: 999px; font-size: 0.76rem; font-weight: 700; white-space: nowrap; }
 .dash-sidebar-scrim { display: none; }
 
 @media (max-width: 1024px) {

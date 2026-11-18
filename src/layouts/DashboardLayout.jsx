@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", Icon: DashboardIcon, to: "/dashboard" },
   { key: "equipment", label: "Equipment", Icon: EquipmentIcon, to: "/dashboard" },
   { key: "requests", label: "Borrow Requests", Icon: RequestsIcon, to: "/admin/requests" },
+  { key: "overdue", label: "Overdue Loans", Icon: RequestsIcon, to: "/admin/overdue" },
   { key: "users", label: "Users", Icon: UsersIcon, to: "/users" },
 ];
 
@@ -35,7 +36,13 @@ export default function DashboardLayout({ user: userProp, onLogout, children, ac
   const user = userProp ?? sessionUser ?? {};
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const activeKey = active ?? (pathname.startsWith("/admin/requests") ? "requests" : "equipment");
+  const activeKey =
+    active ??
+    (pathname.startsWith("/admin/requests")
+      ? "requests"
+      : pathname.startsWith("/admin/overdue")
+        ? "overdue"
+        : "equipment");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const accountRef = useRef(null);
