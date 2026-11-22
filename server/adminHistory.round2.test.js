@@ -7,11 +7,14 @@ import { csvCell } from "./adminBorrowRequests.js";
 
 const BASE = "/api/admin/borrow-requests";
 
+const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
 // Runs the test as if the server sat in another time zone, and puts the real one back afterwards.
+// Deleting TZ does not reset the cached zone on Node 24 for Windows, so an unset TZ is restored to the host zone by name.
 function useZone(t, zone) {
   const saved = process.env.TZ;
   process.env.TZ = zone;
-  t.after(() => (saved === undefined ? delete process.env.TZ : (process.env.TZ = saved)));
+  t.after(() => (process.env.TZ = saved ?? hostZone));
 }
 
 async function start(t) {
