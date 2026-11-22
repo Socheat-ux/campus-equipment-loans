@@ -156,9 +156,10 @@ export function adminBorrowRequestsRouter(db) {
       withTransaction(db, () => {
         const current = currentRequest(id);
         if (!current || current.status !== "approved") throw conflict("Only approved loans can be marked returned.");
+        // MIN: a returned item is always recorded, and stock never goes above what the store owns.
         const returnedAt = new Date().toISOString();
         db.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
-        db.prepare("UPDATE equipment SET available = available + 1, updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
+        db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
         notify(db, {
           userId: current.user_id,
           type: "request_returned",
@@ -196,7 +197,7 @@ export function adminBorrowRequestsRouter(db) {
         }
         const decidedAt = new Date().toISOString();
         if (current.status === "approved") {
-          db.prepare("UPDATE equipment SET available = available + 1, updated_at = ? WHERE id = ?").run(
+          db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(
             decidedAt,
             current.equipment_id,
           );

@@ -65,7 +65,9 @@ async function start(t) {
     const { quantity, available } = (await call("GET", `/api/equipment/${id}`)).body.equipment;
     return { quantity, available };
   };
-  return { db, addItem, edit, lend, giveBack, stock };
+  const cancel = async (requestId) =>
+    assert.equal((await call("POST", `/api/admin/borrow-requests/${requestId}/cancel`, admin.cookie, {})).status, 200);
+  return { db, addItem, edit, lend, giveBack, cancel, stock };
 }
 
 test("the card's steps end with 3 owned and 3 available after the return", async (t) => {
@@ -119,4 +121,29 @@ test("one item on loan gets the singular message, and zero on loan allows a tota
   await giveBack(loan);
   assert.equal((await edit(id, 0)).status, 200);
   assert.deepEqual(await stock(id), { quantity: 0, available: 0 });
+});
+
+// Data that is already wrong (a full shelf while a loan is still out) must not push stock above the total.
+for (const [action, finish] of [
+  ["return", (h) => h.giveBack],
+  ["admin cancel", (h) => h.cancel],
+]) {
+  test(`an ${action} on a full shelf is still recorded and stock stays at the total`, async (t) => {
+    const h = await start(t);
+    const id = await h.addItem(2);
+    const loan = await h.lend(id);
+    h.db.prepare("UPDATE equipment SET available = quantity WHERE id = ?").run(id);
+
+    await finish(h)(loan);
+    assert.deepEqual(await h.stock(id), { quantity: 2, available: 2 });
+  });
+}
+
+test("an admin cancel of an approved loan puts the item back on the shelf", async (t) => {
+  const { addItem, lend, cancel, stock } = await start(t);
+  const id = await addItem(1);
+  const loan = await lend(id);
+  assert.deepEqual(await stock(id), { quantity: 1, available: 0 });
+  await cancel(loan);
+  assert.deepEqual(await stock(id), { quantity: 1, available: 1 });
 });
