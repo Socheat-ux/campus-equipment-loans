@@ -8,7 +8,7 @@ const STATUSES = ["pending", "approved", "rejected", "cancelled"];
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.asset_id AS equipment_asset_id,
-         e.location AS equipment_location, e.available AS stock,
+         e.location AS equipment_location, e.available AS stock, e.quantity AS total,
          r.user_id, u.full_name AS requester_name, u.role AS requester_role,
          r.borrow_date, r.return_date, r.purpose, r.status, r.created_at,
          r.decided_by, r.decided_at, r.decision_reason, r.returned_at
@@ -23,6 +23,7 @@ const asAdminRequest = (row) => ({
   equipmentAssetId: row.equipment_asset_id,
   equipmentLocation: row.equipment_location,
   stock: row.stock,
+  total: row.total,
   userId: row.user_id,
   requesterName: row.requester_name,
   requesterRole: row.requester_role,

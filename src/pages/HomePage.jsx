@@ -136,7 +136,7 @@ export default function HomePage() {
                     }
                   >
                     {item.available
-                      ? `Available (${item.stock} in stock)`
+                      ? `${item.stock} of ${item.total} available`
                       : "Checked Out"}
                   </span>
                 </div>

@@ -73,6 +73,7 @@ test("an admin sees pending requests with requester, item and stock details plus
     equipmentAssetId: `CG-${String(equipmentId).padStart(4, "0")}`,
     equipmentLocation: "Main store",
     stock: 3,
+    total: 3,
     userId: student.id,
     requesterName: "Sok Dara",
     requesterRole: "student",

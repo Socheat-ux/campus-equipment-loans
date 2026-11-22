@@ -62,7 +62,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
             <h2 id="equipment-drawer-title">{editing ? "Edit equipment" : "Add equipment"}</h2>
             <p id="equipment-drawer-desc">
               {editing
-                ? "Update the record and available quantity. Changes appear in the catalogue immediately."
+                ? "Update the record and total quantity. Changes appear in the catalogue immediately."
                 : "Add a new item to the university equipment catalogue."}
             </p>
           </div>
@@ -101,7 +101,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               ))}
             </SelectField>
             <Field
-              label="Quantity"
+              label="Total quantity"
               name="quantity"
               type="number"
               inputMode="numeric"
@@ -109,7 +109,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               step="1"
               errorId={shown}
               error={fields.quantity}
-              placeholder="Enter quantity"
+              placeholder="Enter total quantity"
               hint="Quantity must be 0 or more."
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}

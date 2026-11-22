@@ -200,7 +200,7 @@ export default function BorrowRequestNew() {
                 <span
                   className={item.available ? "availability-pill in-stock" : "availability-pill out-stock"}
                 >
-                  {item.available ? `Available · ${item.stock} in stock` : "Unavailable"}
+                  {item.available ? `${item.stock} of ${item.total} available` : "Unavailable"}
                 </span>
 
                 <dl className="selected-item-details">

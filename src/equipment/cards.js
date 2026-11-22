@@ -24,6 +24,7 @@ export function asCard(item) {
     location: "Library Tech Hub",
     available: item.available > 0,
     stock: item.available,
+    total: item.quantity,
     maxDays: BORROW_MAX_DAYS,
   };
 }
