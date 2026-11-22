@@ -79,7 +79,7 @@ test("a student can submit a request, which is saved pending and creates a notif
   assert.equal(row.user_id, student.id);
   assert.equal(row.return_date, addDaysISO(borrowDate, BORROW_MAX_DAYS));
   // Stock is untouched until staff approval.
-  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 2);
+  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
 
   const notice = db
     .prepare("SELECT type, message FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
@@ -217,7 +217,7 @@ test("a borrower can cancel their own pending request, and it is notified withou
   assert.equal(body.request.status, "cancelled");
   assert.equal(body.request.id, request.id);
   assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "cancelled");
-  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 2);
+  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
 
   const notice = db
     .prepare("SELECT type, message FROM notifications WHERE user_id = ? AND request_id = ? ORDER BY id DESC LIMIT 1")

@@ -200,37 +200,37 @@ test("withTransaction keeps a status change and its notification together", asyn
   const { db, signup } = await start(t);
   const a = await signup("sok.dara");
   db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 2)").run();
-  const quantity = () => db.prepare("SELECT quantity FROM equipment").get().quantity;
+  const available = () => db.prepare("SELECT available FROM equipment").get().available;
   const count = () => db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n;
 
   // notify fails (no reason), so the update before it must be undone too.
   assert.throws(() =>
     withTransaction(db, () => {
-      db.prepare("UPDATE equipment SET quantity = 1").run();
+      db.prepare("UPDATE equipment SET available = 1").run();
       notify(db, { userId: a.id, type: "request_rejected", message: "No" });
     }),
   );
-  assert.equal(quantity(), 2);
+  assert.equal(available(), 2);
   assert.equal(count(), 0);
 
   // The connection is not left inside a transaction: the next one commits normally.
   const id = withTransaction(db, () => {
-    db.prepare("UPDATE equipment SET quantity = 1").run();
+    db.prepare("UPDATE equipment SET available = 1").run();
     return notify(db, { userId: a.id, type: "request_approved", message: "Yes" });
   });
   assert.ok(id > 0);
-  assert.equal(quantity(), 1);
+  assert.equal(available(), 1);
   assert.equal(count(), 1);
 
   // An async function is refused, and its synchronous part is rolled back.
   assert.throws(
     () =>
       withTransaction(db, async () => {
-        db.prepare("UPDATE equipment SET quantity = 0").run();
+        db.prepare("UPDATE equipment SET available = 0").run();
       }),
     /synchronous/,
   );
-  assert.equal(quantity(), 1);
+  assert.equal(available(), 1);
   assert.equal(withTransaction(db, () => "ok"), "ok");
 });
 

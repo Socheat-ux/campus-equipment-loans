@@ -11,7 +11,7 @@ export const CATEGORY_IMAGES = {
   Other: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=800",
 };
 
-// The catalogue only stores name, category and quantity, so the card details
+// The catalogue only stores name, category and stock counts, so the card details
 // that the design calls for are derived here.
 export function asCard(item) {
   return {
@@ -22,8 +22,8 @@ export function asCard(item) {
     description: `${item.category} equipment available for student borrowing.`,
     assetId: `EQ-${String(item.id).padStart(4, "0")}`,
     location: "Library Tech Hub",
-    available: item.quantity > 0,
-    stock: item.quantity,
+    available: item.available > 0,
+    stock: item.available,
     maxDays: BORROW_MAX_DAYS,
   };
 }
