@@ -91,7 +91,7 @@ export function historyFilter(query) {
 // Cells with commas, quotes or line breaks are quoted (RFC 4180).
 export function csvCell(value) {
   let text = value === null || value === undefined ? "" : String(value);
-  if (/^[\s\u00a0\u200b\ufeff]*[=+\-@＝＋－＠]|^[\t\r]/.test(text)) text = `'${text}`;
+  if (/^[\s\u200b]*[=+\-@＝＋－＠]|^[\t\r]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
