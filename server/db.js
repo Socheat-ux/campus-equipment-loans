@@ -86,6 +86,11 @@ export function openDb(path) {
         )`);
     });
   }
+  // The CHECK lets NULL through, so any row left without available (an interrupted or hand-edited database) is refilled here.
+  db.exec(`
+    UPDATE equipment SET available = MAX(0, quantity - (
+      SELECT COUNT(*) FROM borrow_requests r WHERE r.equipment_id = equipment.id AND r.status = 'approved'
+    )) WHERE available IS NULL`);
   // A new item has nothing on loan, so everything it owns is available.
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS equipment_available

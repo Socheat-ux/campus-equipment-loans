@@ -168,7 +168,7 @@ export default function BorrowRequestNew() {
                     maxLength={PURPOSE_MAX}
                     value={purpose}
                     onChange={(event) => setPurpose(event.target.value)}
-                    placeholder="Tell staff what you will use the item for"
+                    placeholder="Enter the purpose of your loan"
                   />
                   {fields.purpose && <p className="field-error">{fields.purpose}</p>}
                 </div>
@@ -200,7 +200,7 @@ export default function BorrowRequestNew() {
                 <span
                   className={item.available ? "availability-pill in-stock" : "availability-pill out-stock"}
                 >
-                  {item.available ? `${item.stock} of ${item.total} available` : "Unavailable"}
+                  {`${item.stock} of ${item.total} available`}
                 </span>
 
                 <dl className="selected-item-details">

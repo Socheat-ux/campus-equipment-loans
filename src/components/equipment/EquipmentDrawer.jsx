@@ -12,6 +12,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
   const [fields, setFields] = useState({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const onLoan = editing && item ? item.quantity - item.available : 0;
   const errorId = useId();
   const shown = error ? errorId : undefined;
 
@@ -110,7 +111,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               errorId={shown}
               error={fields.quantity}
               placeholder="Enter total quantity"
-              hint="Quantity must be 0 or more."
+              hint={onLoan > 0 ? `${onLoan} on loan. Total must be ${onLoan} or more.` : "Quantity must be 0 or more."}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
             />

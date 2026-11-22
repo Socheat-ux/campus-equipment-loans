@@ -57,14 +57,17 @@ export function equipmentRouter(db) {
   router.put("/:id", (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(404).json({ error: "Equipment not found." });
-    const existing = db.prepare("SELECT id, quantity, available FROM equipment WHERE id = ?").get(id);
+    const existing = db.prepare("SELECT id FROM equipment WHERE id = ?").get(id);
     if (!existing) return res.status(404).json({ error: "Equipment not found." });
 
     const { fields, value } = equipmentInput(req.body);
     if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
 
     // The read above and the write below run with no await between them, so no approval or return can slip in.
-    const onLoan = existing.quantity - existing.available;
+    // Counting the approved loans, not quantity - available, keeps the shelf right even if available ever drifted.
+    const onLoan = db
+      .prepare("SELECT COUNT(*) AS n FROM borrow_requests WHERE equipment_id = ? AND status = 'approved'")
+      .get(existing.id).n;
     if (value.quantity < onLoan) {
       const message = `Total cannot be lower than the ${onLoan} ${onLoan === 1 ? "item" : "items"} on loan.`;
       return res.status(400).json({ error: "Please fix the fields below.", fields: { quantity: message } });
