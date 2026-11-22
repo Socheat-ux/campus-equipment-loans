@@ -57,15 +57,21 @@ export function equipmentRouter(db) {
   router.put("/:id", (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return res.status(404).json({ error: "Equipment not found." });
-    const existing = db.prepare("SELECT id FROM equipment WHERE id = ?").get(id);
+    const existing = db.prepare("SELECT id, quantity, available FROM equipment WHERE id = ?").get(id);
     if (!existing) return res.status(404).json({ error: "Equipment not found." });
 
     const { fields, value } = equipmentInput(req.body);
     if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
 
+    // The read above and the write below run with no await between them, so no approval or return can slip in.
+    const onLoan = existing.quantity - existing.available;
+    if (value.quantity < onLoan) {
+      const message = `Total cannot be lower than the ${onLoan} ${onLoan === 1 ? "item" : "items"} on loan.`;
+      return res.status(400).json({ error: "Please fix the fields below.", fields: { quantity: message } });
+    }
     db.prepare(
       "UPDATE equipment SET name = ?, category = ?, quantity = ?, available = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    ).run(value.name, value.category, value.quantity, value.quantity, existing.id);
+    ).run(value.name, value.category, value.quantity, value.quantity - onLoan, existing.id);
     const row = db.prepare(`${selectColumns} WHERE id = ?`).get(existing.id);
     res.json({ equipment: asEquipment(row) });
   });
