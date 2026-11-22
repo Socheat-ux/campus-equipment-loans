@@ -111,7 +111,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               errorId={shown}
               error={fields.quantity}
               placeholder="Enter total quantity"
-              hint={onLoan > 0 ? `${onLoan} on loan. Total must be ${onLoan} or more.` : "Quantity must be 0 or more."}
+              hint={fields.quantity ? undefined : onLoan > 0 ? `${onLoan} on loan. Total must be ${onLoan} or more.` : "Quantity must be 0 or more."}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
             />

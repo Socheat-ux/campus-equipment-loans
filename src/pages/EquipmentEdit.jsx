@@ -71,6 +71,8 @@ export default function EquipmentEdit({ preview = false }) {
     } catch (err) {
       setError(err.message);
       setFields(err.fields || {});
+      // A refused save may mean the loans changed, so refresh the hint to match the server's message.
+      if (err.status === 400) await getEquipment(id).then((item) => setOnLoan(item.quantity - item.available), () => {});
     } finally {
       setBusy(false);
     }
