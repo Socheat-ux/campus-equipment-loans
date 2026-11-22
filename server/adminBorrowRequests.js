@@ -2,10 +2,11 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError, todayISO } from "./rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError } from "./rules.js";
 
 const STATUSES = ["pending", "approved", "rejected", "returned", "cancelled"];
 const SEARCH_MAX = 100;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.asset_id AS equipment_asset_id,
@@ -67,6 +68,8 @@ export function historyFilter(query) {
   if (item.length > SEARCH_MAX || borrower.length > SEARCH_MAX) {
     return { error: `Searches must be ${SEARCH_MAX} characters or fewer.` };
   }
+  // A NUL would make LIKE match every row, so control characters are refused.
+  if (CONTROL_CHARS.test(item) || CONTROL_CHARS.test(borrower)) return { error: "Searches cannot contain control characters." };
 
   const where = [];
   const params = [];
@@ -77,18 +80,29 @@ export function historyFilter(query) {
   if (status !== "all") add("r.status = ?", status);
   if (from) add("r.borrow_date >= ?", from);
   if (to) add("r.borrow_date <= ?", to);
+  // SQLite LIKE folds case for ASCII letters only, so "é" does not match "É".
   if (item) add("(e.name LIKE ? ESCAPE '!' OR e.asset_id LIKE ? ESCAPE '!')", contains(item), contains(item));
   if (borrower) add("(u.full_name LIKE ? ESCAPE '!' OR u.email LIKE ? ESCAPE '!')", contains(borrower), contains(borrower));
   return { where: where.length ? where.join(" AND ") : "1 = 1", params };
 }
 
-// A cell that starts with = + - @ (or a tab or carriage return) would run as a formula in a spreadsheet,
-// so it gets a leading apostrophe. Cells with commas, quotes or line breaks are quoted (RFC 4180).
+// A cell that starts with = + - @ (also full-width, and after spaces or invisible characters) or with a tab or
+// carriage return would run as a formula in a spreadsheet, so it gets a leading apostrophe.
+// Cells with commas, quotes or line breaks are quoted (RFC 4180).
 export function csvCell(value) {
   let text = value === null || value === undefined ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  if (/^[\s\u00a0\u200b\ufeff]*[=+\-@＝＋－＠]|^[\t\r]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
+
+// Reports are read in Cambodia, so timestamps and the file date use Phnom Penh time whatever the server's zone is.
+const PHNOM_PENH = { timeZone: "Asia/Phnom_Penh" };
+const phnomPenhDate = (date = new Date()) => date.toLocaleDateString("sv-SE", PHNOM_PENH);
+const phnomPenhDateTime = (iso) => {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return iso ?? "";
+  return date.toLocaleString("sv-SE", { ...PHNOM_PENH, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
 
 const CSV_COLUMNS = [
   ["Request ID", (r) => r.id],
@@ -98,7 +112,7 @@ const CSV_COLUMNS = [
   ["Email", (r) => r.requesterEmail],
   ["Borrow date", (r) => r.borrowDate],
   ["Due date", (r) => r.returnDate],
-  ["Returned at", (r) => r.returnedAt],
+  ["Returned date", (r) => phnomPenhDateTime(r.returnedAt)],
   ["Status", (r) => r.status],
 ];
 
@@ -140,7 +154,7 @@ export function adminBorrowRequestsRouter(db) {
     if (filter.error) return res.status(400).json({ error: filter.error });
     const lines = [CSV_COLUMNS.map(([title]) => title), ...findHistory(filter).map((r) => CSV_COLUMNS.map(([, cell]) => cell(r)))];
     res.set("Content-Type", "text/csv; charset=utf-8");
-    res.set("Content-Disposition", `attachment; filename="borrowing-report-${todayISO()}.csv"`);
+    res.set("Content-Disposition", `attachment; filename="borrowing-report-${phnomPenhDate()}.csv"`);
     // The byte order mark makes Excel read the file as UTF-8.
     return res.send(`\uFEFF${lines.map((line) => line.map(csvCell).join(",")).join("\r\n")}\r\n`);
   });

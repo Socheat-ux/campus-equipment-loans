@@ -178,7 +178,7 @@ test("the CSV holds exactly the filtered rows with every column, as a UTF-8 down
   assert.ok(text.endsWith("\r\n"));
 
   const [header, ...rows] = parseCsv(text.slice(1));
-  assert.deepEqual(header, ["Request ID", "Item", "Asset ID", "Borrower", "Email", "Borrow date", "Due date", "Returned at", "Status"]);
+  assert.deepEqual(header, ["Request ID", "Item", "Asset ID", "Borrower", "Email", "Borrow date", "Due date", "Returned date", "Status"]);
   const listed = (await list(query)).body.requests;
   assert.equal(rows.length, listed.length);
   assert.ok(rows.length >= 4);
@@ -192,7 +192,7 @@ test("the CSV holds exactly the filtered rows with every column, as a UTF-8 down
       r.requesterEmail,
       r.borrowDate,
       r.returnDate,
-      r.returnedAt ?? "",
+      r.returnedAt ? r.returnedAt.replace("T09:30:00.000Z", " 16:30") : "",
       r.status,
     ]);
   });
@@ -210,7 +210,7 @@ test("the CSV refuses the same bad filters and an empty result is just the heade
 
   const empty = await get("/api/admin/borrow-requests/export.csv?status=all&borrower=nobody");
   assert.equal(empty.status, 200);
-  assert.equal(await empty.text(), "Request ID,Item,Asset ID,Borrower,Email,Borrow date,Due date,Returned at,Status\r\n");
+  assert.equal(await empty.text(), "Request ID,Item,Asset ID,Borrower,Email,Borrow date,Due date,Returned date,Status\r\n");
 });
 
 test("csvCell defuses formulas and quotes only what needs quoting", () => {
