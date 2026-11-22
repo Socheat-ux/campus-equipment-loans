@@ -14,7 +14,7 @@ const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 function useZone(t, zone) {
   const saved = process.env.TZ;
   process.env.TZ = zone;
-  t.after(() => (process.env.TZ = saved ?? hostZone));
+  t.after(() => (process.env.TZ = saved || hostZone));
 }
 
 async function start(t) {
@@ -26,12 +26,12 @@ async function start(t) {
   const signup = await fetch(`${root}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "lov.kimtech@cadt.edu.kh", password: "goodpass1" }),
+    body: JSON.stringify({ email: "ly.sophea@cadt.edu.kh", password: "goodpass1" }),
   });
   assert.equal(signup.status, 201);
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
   const cookie = signup.headers.get("set-cookie").split(";")[0];
-  const who = Number(db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('Meas.Rithy@student.cadt.edu.kh', 'Meas Rithy', 'student', 'x')").run().lastInsertRowid);
+  const who = Number(db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('meas.rithy@student.cadt.edu.kh', 'Meas Rithy', 'student', 'x')").run().lastInsertRowid);
   const item = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Canon camera', 'Lab', 5)").run().lastInsertRowid);
   const addReturned = (returnedAt) =>
     Number(db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at) VALUES (?, ?, '2026-11-01', '2026-11-08', 'returned', ?)").run(item, who, returnedAt).lastInsertRowid);

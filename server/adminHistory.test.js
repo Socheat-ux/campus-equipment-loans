@@ -35,7 +35,7 @@ async function start(t) {
   const signup = await fetch(`${root}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "lov.kimtech@cadt.edu.kh", password: GOOD }),
+    body: JSON.stringify({ email: "ly.sophea@cadt.edu.kh", password: GOOD }),
   });
   assert.equal(signup.status, 201);
   const adminId = (await signup.json()).user.id;

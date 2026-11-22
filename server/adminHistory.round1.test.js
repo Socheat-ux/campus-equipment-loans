@@ -19,7 +19,7 @@ async function start(t) {
   const signup = await fetch(`${root}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: "lov.kimtech@cadt.edu.kh", password: "goodpass1" }),
+    body: JSON.stringify({ email: "ly.sophea@cadt.edu.kh", password: "goodpass1" }),
   });
   assert.equal(signup.status, 201);
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
@@ -83,7 +83,7 @@ function parseCsv(text) {
 
 test("the CSV follows the status filter exactly like the list", async (t) => {
   const { addUser, addItem, addLoan, listedIds, exportedRows } = await start(t);
-  const who = addUser("Meas.Rithy@student.cadt.edu.kh", "Meas Rithy");
+  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
   const item = addItem("Canon camera");
   STATUSES.forEach((status, i) => addLoan(item, who, `2026-10-0${i + 1}`, status));
   addLoan(item, who, "2026-10-09", "returned");
@@ -101,7 +101,7 @@ test("the CSV follows the status filter exactly like the list", async (t) => {
 
 test("an exclamation mark in a search is literal, even next to a percent sign", async (t) => {
   const { addUser, addItem, addLoan, listedIds, exportedRows } = await start(t);
-  const who = addUser("Meas.Rithy@student.cadt.edu.kh", "Meas Rithy");
+  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
   const ids = ["wid!get", "a!%b", "widget"].map((name) => addLoan(addItem(name), who, "2026-10-01", "pending"));
 
   assert.deepEqual(await listedIds("item=!"), [ids[1], ids[0]]);
@@ -113,9 +113,9 @@ test("an exclamation mark in a search is literal, even next to a percent sign", 
 test("the borrower search trims tabs and spaces, ignores case and matches only that person", async (t) => {
   const { addUser, addItem, addLoan, listedIds } = await start(t);
   const item = addItem("Epson projector");
-  const dara = addUser("Sok.Dara@student.cadt.edu.kh", "Sok Dara");
-  const sokha = addUser("Sokha.Dara@student.cadt.edu.kh", "Sokha Dara");
-  const chan = addUser("Chan.Sok@cadt.edu.kh", "Chan Sok", "faculty");
+  const dara = addUser("sok.dara@student.cadt.edu.kh", "Sok Dara");
+  const sokha = addUser("sokha.dara@student.cadt.edu.kh", "Sokha Dara");
+  const chan = addUser("chan.sok@cadt.edu.kh", "Chan Sok", "faculty");
   const first = addLoan(item, dara, "2026-10-01", "pending");
   addLoan(item, sokha, "2026-10-02", "pending");
   addLoan(item, chan, "2026-10-03", "pending");
@@ -126,7 +126,7 @@ test("the borrower search trims tabs and spaces, ignores case and matches only t
 
 test("control characters in a search are refused for the list and the CSV", async (t) => {
   const { addUser, addItem, addLoan, list, exportCsv } = await start(t);
-  addLoan(addItem("Epson projector"), addUser("Meas.Rithy@student.cadt.edu.kh", "Meas Rithy"), "2026-10-01", "pending");
+  addLoan(addItem("Epson projector"), addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy"), "2026-10-01", "pending");
 
   const error = { error: "Searches cannot contain control characters." };
   for (const query of ["item=%00", "borrower=%00x", "item=a%7Fb", "item=a%1Fb", "borrower=a%0Ab"]) {
@@ -141,7 +141,7 @@ test("control characters in a search are refused for the list and the CSV", asyn
 
 test("the CSV shows the returned time in Phnom Penh while the list keeps the ISO string", async (t) => {
   const { addUser, addItem, addLoan, list, exportedRows, exportCsv } = await start(t);
-  const who = addUser("Meas.Rithy@student.cadt.edu.kh", "Meas Rithy");
+  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
   const item = addItem("Canon camera");
   const late = addLoan(item, who, "2026-10-25", "returned", "2026-11-01T20:00:00.000Z");
   const early = addLoan(item, who, "2026-10-26", "returned", "2026-10-31T16:59:00.000Z");
@@ -169,11 +169,11 @@ test("the CSV shows the returned time in Phnom Penh while the list keeps the ISO
 test("a 3000-row export is complete, in order, spreadsheet-safe and fast", async (t) => {
   const { db, addUser, addItem, addLoan, listedIds, exportCsv } = await start(t);
   const people = [
-    ["Sok.Dara@student.cadt.edu.kh", "Sok, Dara"],
-    ["Chan.Nita@student.cadt.edu.kh", 'Chan "Nita" Keo'],
-    ["Keo.Bopha@student.cadt.edu.kh", "Keo\nBopha"],
-    ["Meas.Rithy@student.cadt.edu.kh", '=Meas, "Rithy"\r\nX'],
-    ["Hong.Bonsak@cadt.edu.kh", "+Hong Bonsak"],
+    ["sok.dara@student.cadt.edu.kh", "Sok, Dara"],
+    ["chan.nita@student.cadt.edu.kh", 'Chan "Nita" Keo'],
+    ["keo.bopha@student.cadt.edu.kh", "Keo\nBopha"],
+    ["meas.rithy@student.cadt.edu.kh", '=Meas, "Rithy"\r\nX'],
+    ["chhim.vanna@student.cadt.edu.kh", "+Chhim Vanna"],
   ].map(([email, name]) => addUser(email, name));
   const items = ["Dell laptop", "=cmd item", "Epson projector"].map(addItem);
   // One transaction keeps the seeding fast.
