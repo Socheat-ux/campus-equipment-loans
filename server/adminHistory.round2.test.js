@@ -63,6 +63,10 @@ test("R2 the file name date flips at Phnom Penh midnight, not UTC or server midn
   assert.equal(await name(), 'attachment; filename="borrowing-report-2026-11-23.csv"');
 });
 
+test("R2 the next test is back in the zone the process started in", () => {
+  assert.equal(Intl.DateTimeFormat().resolvedOptions().timeZone, hostZone);
+});
+
 // R2-3: the guard leaves hyphens, spaces and equals signs inside ordinary text alone, and it composes with RFC 4180 quoting.
 test("R2 csvCell does not over-escape and still quotes a guarded cell", () => {
   for (const plain of ["   ", "A-1", "Room 3-204", "e=mc2", "x@y"]) assert.equal(csvCell(plain), plain, JSON.stringify(plain));
