@@ -61,9 +61,9 @@ async function start(t) {
     return { status: res.status, body: await res.json() };
   };
   const row = (id) => ({ ...db.prepare("SELECT status, return_date, decided_by FROM borrow_requests WHERE id = ?").get(id) });
-  const quantity = () => db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity;
+  const available = () => db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available;
   const notices = () => db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n;
-  return { pending, post, row, quantity, notices };
+  return { pending, post, row, available, notices };
 }
 
 test("a request that started yesterday is refused and nothing changes", async (t) => {
@@ -75,7 +75,7 @@ test("a request that started yesterday is refused and nothing changes", async (t
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.body, { error: PASSED });
   assert.deepEqual(h.row(id), { status: "pending", return_date: "2026-11-16", decided_by: null });
-  assert.equal(h.quantity(), 2);
+  assert.equal(h.available(), 2);
   assert.equal(h.notices(), 0);
 });
 
@@ -88,7 +88,7 @@ test("a request that starts today is still approved, with the due date counted f
   assert.equal(approved.status, 200);
   assert.equal(approved.body.request.status, "approved");
   assert.equal(approved.body.request.returnDate, "2026-11-17");
-  assert.equal(h.quantity(), 1);
+  assert.equal(h.available(), 1);
 });
 
 test("the day turns at midnight in Phnom Penh even when the server runs in UTC", async (t) => {
@@ -117,7 +117,7 @@ test("a request whose start date passed can still be rejected, so the student ca
   const rejected = await h.post(`/${id}/reject`, { reason: "The start date passed before anyone reviewed it." });
   assert.equal(rejected.status, 200);
   assert.equal(rejected.body.request.status, "rejected");
-  assert.equal(h.quantity(), 2);
+  assert.equal(h.available(), 2);
 });
 
 // The admin page is bundled with a tiny fake React (the same approach as users.ui.test.js) and its tree is inspected.

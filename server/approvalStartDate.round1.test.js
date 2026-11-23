@@ -57,8 +57,8 @@ async function start(t, { stock = 2 } = {}) {
         .run(equipmentId, student.id, borrowDate, borrowDate, status).lastInsertRowid,
     );
   const approve = (id) => call("POST", `/api/admin/borrow-requests/${id}/approve`, {}, admin.cookie);
-  const quantity = () => db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity;
-  return { db, call, insert, approve, quantity, admin, student, equipmentId };
+  const available = () => db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available;
+  return { db, call, insert, approve, available, admin, student, equipmentId };
 }
 
 test("with no stock left, a stale request still gets the start-date message, not the stock one", async (t) => {
@@ -69,7 +69,7 @@ test("with no stock left, a stale request still gets the start-date message, not
   assert.equal(res.status, 409);
   assert.deepEqual(res.body, { error: PASSED });
   assert.equal(h.db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(id).status, "pending");
-  assert.equal(h.quantity(), 0);
+  assert.equal(h.available(), 0);
 });
 
 test("the year turns at midnight in Phnom Penh on a UTC+14 host and on a UTC-11 host", async (t) => {
@@ -91,7 +91,7 @@ test("the year turns at midnight in Phnom Penh on a UTC+14 host and on a UTC-11 
   const ok = await h.approve(newYear);
   assert.equal(ok.status, 200);
   assert.equal(ok.body.request.returnDate, "2026-01-08");
-  assert.equal(h.quantity(), 0);
+  assert.equal(h.available(), 0);
 });
 
 test("on a Los Angeles host the student form and the approval agree on which day it is", async (t) => {

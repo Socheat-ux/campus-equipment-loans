@@ -63,7 +63,7 @@ test("equipment reads are public, writes are administrator-only, and each field 
   );
   assert.equal(created.status, 201);
   const item = (await created.json()).equipment;
-  assert.deepEqual(item, { id: item.id, name: "Epson projector", category: "Projector", quantity: 2 });
+  assert.deepEqual(item, { id: item.id, name: "Epson projector", category: "Projector", quantity: 2, available: 2 });
 
   assert.equal((await call("GET", `/api/equipment/${item.id}`, undefined, adminCookie)).status, 200);
   assert.equal((await call("GET", "/api/equipment/9999", undefined, adminCookie)).status, 404);
@@ -84,11 +84,11 @@ test("equipment reads are public, writes are administrator-only, and each field 
     adminCookie,
   );
   assert.equal(edited.status, 200);
-  assert.deepEqual((await edited.json()).equipment, { id: item.id, name: "Epson projector", category: "Audio", quantity: 0 });
+  assert.deepEqual((await edited.json()).equipment, { id: item.id, name: "Epson projector", category: "Audio", quantity: 0, available: 0 });
 
   const list = await call("GET", "/api/equipment", undefined, adminCookie);
   assert.deepEqual((await list.json()).equipment, [
-    { id: item.id, name: "Epson projector", category: "Audio", quantity: 0 },
+    { id: item.id, name: "Epson projector", category: "Audio", quantity: 0, available: 0 },
   ]);
 });
 

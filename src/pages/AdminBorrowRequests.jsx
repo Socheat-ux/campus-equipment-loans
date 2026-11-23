@@ -201,7 +201,7 @@ export default function AdminBorrowRequests() {
                       ) : (
                         <>
                           <td>{formatDate(request.returnDate)}</td>
-                          <td>{request.stock}</td>
+                          <td>{request.stock} of {request.total} available</td>
                         </>
                       )}
                       {status !== "cancelled" && (
@@ -282,7 +282,7 @@ export default function AdminBorrowRequests() {
                   <p className="dash-review-note">
                     {startPassed(review)
                       ? "Start date passed. Reject this request so the student can send a new one."
-                      : `${review.stock} in stock. Approving reserves this item for the borrow dates.`}
+                      : `${review.stock} of ${review.total} available. Approving reserves this item for the borrow dates.`}
                   </p>
                 </>
               ) : (

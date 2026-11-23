@@ -26,6 +26,7 @@ const ROUTES = [
   ["POST", "/api/borrow-requests", "borrower"],
   ["POST", "/api/borrow-requests/1/cancel", "borrower"],
   ["GET", "/api/admin/borrow-requests", "admin"],
+  ["GET", "/api/admin/borrow-requests/export.csv", "admin"],
   ["POST", "/api/admin/borrow-requests/1/approve", "admin"],
   ["POST", "/api/admin/borrow-requests/1/reject", "admin"],
   ["POST", "/api/admin/borrow-requests/1/return", "admin"],
