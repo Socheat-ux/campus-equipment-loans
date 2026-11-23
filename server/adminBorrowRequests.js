@@ -10,7 +10,7 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.asset_id AS equipment_asset_id,
-         e.location AS equipment_location, e.quantity AS stock,
+         e.location AS equipment_location, e.available AS stock, e.quantity AS total,
          r.user_id, u.full_name AS requester_name, u.email AS requester_email, u.role AS requester_role,
          r.borrow_date, r.return_date, r.purpose, r.status, r.created_at,
          r.decided_by, r.decided_at, r.decision_reason, r.returned_at
@@ -25,6 +25,7 @@ const asAdminRequest = (row) => ({
   equipmentAssetId: row.equipment_asset_id,
   equipmentLocation: row.equipment_location,
   stock: row.stock,
+  total: row.total,
   userId: row.user_id,
   requesterName: row.requester_name,
   requesterEmail: row.requester_email,
@@ -172,11 +173,11 @@ export function adminBorrowRequestsRouter(db) {
         const current = currentRequest(id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be approved.");
         const equipment = db
-          .prepare("SELECT id, name, location, quantity FROM equipment WHERE id = ?")
+          .prepare("SELECT id, name, location, available FROM equipment WHERE id = ?")
           .get(current.equipment_id);
-        if (!equipment || equipment.quantity < 1) throw conflict("This item is no longer available.");
+        if (!equipment || equipment.available < 1) throw conflict("This item is no longer available.");
         const decidedAt = new Date().toISOString();
-        db.prepare("UPDATE equipment SET quantity = quantity - 1, updated_at = ? WHERE id = ?").run(
+        db.prepare("UPDATE equipment SET available = available - 1, updated_at = ? WHERE id = ?").run(
           decidedAt,
           equipment.id,
         );
@@ -245,9 +246,10 @@ export function adminBorrowRequestsRouter(db) {
       withTransaction(db, () => {
         const current = currentRequest(id);
         if (!current || current.status !== "approved") throw conflict("Only approved loans can be marked returned.");
+        // MIN: a returned item is always recorded, and stock never goes above what the store owns.
         const returnedAt = new Date().toISOString();
         db.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
-        db.prepare("UPDATE equipment SET quantity = quantity + 1, updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
+        db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
         notify(db, {
           userId: current.user_id,
           type: "request_returned",
@@ -285,7 +287,7 @@ export function adminBorrowRequestsRouter(db) {
         }
         const decidedAt = new Date().toISOString();
         if (current.status === "approved") {
-          db.prepare("UPDATE equipment SET quantity = quantity + 1, updated_at = ? WHERE id = ?").run(
+          db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(
             decidedAt,
             current.equipment_id,
           );

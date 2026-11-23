@@ -60,10 +60,10 @@ export function borrowRequestsRouter(db) {
     if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
 
     const equipment = db
-      .prepare("SELECT id, name, quantity FROM equipment WHERE id = ?")
+      .prepare("SELECT id, name, available FROM equipment WHERE id = ?")
       .get(value.equipmentId);
     if (!equipment) return res.status(404).json({ error: "Equipment not found." });
-    if (equipment.quantity < 1) {
+    if (equipment.available < 1) {
       return res.status(400).json({
         error: "This item is no longer available.",
         fields: { equipmentId: "This item is no longer available." },

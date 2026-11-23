@@ -73,6 +73,7 @@ test("an admin sees pending requests with requester, item and stock details plus
     equipmentAssetId: `CG-${String(equipmentId).padStart(4, "0")}`,
     equipmentLocation: "Main store",
     stock: 3,
+    total: 3,
     userId: student.id,
     requesterName: "Sok Dara",
     requesterEmail: "sok.dara@student.cadt.edu.kh",
@@ -113,7 +114,7 @@ test("approval records the decision, reserves one item and notifies the student"
   assert.equal(decided.returnDate, request.returnDate);
   assert.equal(decided.returnedAt, null);
   assert.equal(decided.stock, 1);
-  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 1);
+  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 1);
 
   const notice = db
     .prepare("SELECT type, message, reason FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
@@ -138,13 +139,13 @@ test("approval refuses a request when the item has no stock left", async (t) => 
   const student = await signup("sok.dara@student.cadt.edu.kh");
   const equipmentId = addEquipment("Checked out camera", 1);
   const request = await createRequest(student, equipmentId, "Checked out camera");
-  db.prepare("UPDATE equipment SET quantity = 0 WHERE id = ?").run(equipmentId);
+  db.prepare("UPDATE equipment SET available = 0 WHERE id = ?").run(equipmentId);
 
   const res = await call("POST", `/api/admin/borrow-requests/${request.id}/approve`, {}, admin.cookie);
   assert.equal(res.status, 409);
   assert.deepEqual(await res.json(), { error: "This item is no longer available." });
   assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "pending");
-  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 0);
+  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 0);
   const notices = db.prepare("SELECT type FROM notifications WHERE user_id = ?").all(student.id);
   assert.equal(notices.length, 1);
   assert.equal(notices[0].type, "request_submitted");
@@ -165,7 +166,7 @@ test("rejection saves the reason, leaves stock alone and notifies the student", 
   assert.equal(decided.decidedBy, admin.id);
   assert.match(decided.decidedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(decided.stock, 2);
-  assert.equal(db.prepare("SELECT quantity FROM equipment WHERE id = ?").get(equipmentId).quantity, 2);
+  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
 
   const notice = db
     .prepare("SELECT type, message, reason FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")

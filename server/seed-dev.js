@@ -50,11 +50,11 @@ export async function seedTestAccounts(db) {
   const studentId = db.prepare("SELECT id FROM users WHERE email = ?").get(TEST_ACCOUNTS[0].email).id;
   const demoPurpose = "DEMO: overdue loan sample";
   const exists = db.prepare("SELECT 1 FROM borrow_requests WHERE user_id = ? AND purpose = ?").get(studentId, demoPurpose);
-  const laptop = db.prepare("SELECT id, quantity FROM equipment WHERE name = 'Dell Latitude 5440 Laptop' ORDER BY id LIMIT 1").get();
-  if (!exists && laptop?.quantity > 0) {
+  const laptop = db.prepare("SELECT id, available FROM equipment WHERE name = 'Dell Latitude 5440 Laptop' ORDER BY id LIMIT 1").get();
+  if (!exists && laptop?.available > 0) {
     const today = todayISO();
     withTransaction(db, () => {
-      db.prepare("UPDATE equipment SET quantity = quantity - 1 WHERE id = ?").run(laptop.id);
+      db.prepare("UPDATE equipment SET available = available - 1 WHERE id = ?").run(laptop.id);
       db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, purpose, status) VALUES (?, ?, ?, ?, ?, 'approved')")
         .run(laptop.id, studentId, addDaysISO(today, -14), addDaysISO(today, -7), demoPurpose);
     });

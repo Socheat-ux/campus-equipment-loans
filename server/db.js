@@ -26,6 +26,7 @@ export function openDb(path) {
       name TEXT NOT NULL,
       category TEXT NOT NULL,
       quantity INTEGER NOT NULL CHECK (quantity >= 0),
+      available INTEGER CHECK (available >= 0 AND available <= quantity),
       asset_id TEXT NOT NULL DEFAULT '',
       location TEXT NOT NULL DEFAULT 'Main store',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +72,32 @@ export function openDb(path) {
     WHEN NEW.asset_id = ''
     BEGIN
       UPDATE equipment SET asset_id = 'CG-' || printf('%04d', NEW.id) WHERE id = NEW.id;
+    END;
+  `);
+
+  // quantity used to mean the copies on the shelf. It now means the total the store owns,
+  // and available is the shelf count, so approved loans are added back to quantity.
+  if (!equipmentColumns.has("available")) {
+    withTransaction(db, () => {
+      db.exec("ALTER TABLE equipment ADD COLUMN available INTEGER CHECK (available >= 0 AND available <= quantity)");
+      db.exec(`
+        UPDATE equipment SET available = quantity, quantity = quantity + (
+          SELECT COUNT(*) FROM borrow_requests r WHERE r.equipment_id = equipment.id AND r.status = 'approved'
+        )`);
+    });
+  }
+  // The CHECK lets NULL through, so any row left without available (an interrupted or hand-edited database) is refilled here.
+  db.exec(`
+    UPDATE equipment SET available = MAX(0, quantity - (
+      SELECT COUNT(*) FROM borrow_requests r WHERE r.equipment_id = equipment.id AND r.status = 'approved'
+    )) WHERE available IS NULL`);
+  // A new item has nothing on loan, so everything it owns is available.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS equipment_available
+    AFTER INSERT ON equipment
+    WHEN NEW.available IS NULL
+    BEGIN
+      UPDATE equipment SET available = NEW.quantity WHERE id = NEW.id;
     END;
   `);
 

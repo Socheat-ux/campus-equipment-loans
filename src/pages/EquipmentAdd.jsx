@@ -80,7 +80,7 @@ export default function EquipmentAdd({ preview = false }) {
           ))}
         </SelectField>
         <Field
-          label="Quantity"
+          label="Total quantity"
           name="quantity"
           type="number"
           inputMode="numeric"
@@ -88,7 +88,7 @@ export default function EquipmentAdd({ preview = false }) {
           step="1"
           errorId={shown}
           error={fields.quantity}
-          placeholder="Enter quantity"
+          placeholder="Enter total quantity"
           hint="Quantity must be 0 or more."
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}

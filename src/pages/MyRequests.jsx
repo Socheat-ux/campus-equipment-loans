@@ -203,7 +203,7 @@ export default function MyRequests() {
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
                 maxLength={300}
-                placeholder="Why are you cancelling this request?"
+                placeholder="Enter a reason for cancelling"
               />
               {cancelReasonError && <ErrorText>{cancelReasonError}</ErrorText>}
               <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>

@@ -12,6 +12,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
   const [fields, setFields] = useState({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const onLoan = editing && item ? item.quantity - item.available : 0;
   const errorId = useId();
   const shown = error ? errorId : undefined;
 
@@ -62,7 +63,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
             <h2 id="equipment-drawer-title">{editing ? "Edit equipment" : "Add equipment"}</h2>
             <p id="equipment-drawer-desc">
               {editing
-                ? "Update the record and available quantity. Changes appear in the catalogue immediately."
+                ? "Update the record and total quantity. Changes appear in the catalogue immediately."
                 : "Add a new item to the university equipment catalogue."}
             </p>
           </div>
@@ -101,7 +102,7 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               ))}
             </SelectField>
             <Field
-              label="Quantity"
+              label="Total quantity"
               name="quantity"
               type="number"
               inputMode="numeric"
@@ -109,8 +110,8 @@ export default function EquipmentDrawer({ mode, item, onClose, onSave }) {
               step="1"
               errorId={shown}
               error={fields.quantity}
-              placeholder="Enter quantity"
-              hint="Quantity must be 0 or more."
+              placeholder="Enter total quantity"
+              hint={fields.quantity ? undefined : onLoan > 0 ? `${onLoan} on loan. Total must be ${onLoan} or more.` : "Quantity must be 0 or more."}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
             />

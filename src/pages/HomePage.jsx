@@ -135,9 +135,7 @@ export default function HomePage() {
                         : "stock-badge out-stock"
                     }
                   >
-                    {item.available
-                      ? `Available (${item.stock} in stock)`
-                      : "Checked Out"}
+                    {`${item.stock} of ${item.total} available`}
                   </span>
                 </div>
 
