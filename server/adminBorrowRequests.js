@@ -70,7 +70,7 @@ export function adminBorrowRequestsRouter(db) {
       db.prepare("SELECT status, COUNT(*) AS n FROM borrow_requests GROUP BY status").all().map((row) => [row.status, row.n]),
     );
     const counts = Object.fromEntries(STATUSES.map((name) => [name, totals[name] ?? 0]));
-    return res.json({ requests: rows.map(asAdminRequest), counts });
+    return res.json({ requests: rows.map(asAdminRequest), counts, today: todayISO() });
   });
 
   router.post("/:id/approve", (req, res) => {

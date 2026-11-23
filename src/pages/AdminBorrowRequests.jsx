@@ -34,8 +34,8 @@ export default function AdminBorrowRequests() {
   const [adminCancel, setAdminCancel] = useState(null); // { id, requesterName, equipmentName }
   const [adminCancelReason, setAdminCancelReason] = useState("");
   const [adminCancelError, setAdminCancelError] = useState("");
-  // A pending request whose start date is before today (Cambodia time) can only be rejected.
-  const startPassed = (request) => request.status === "pending" && request.borrowDate < todayISO();
+  // A pending request whose start date is before today (Cambodia day from the server) can only be rejected.
+  const startPassed = (request) => request.status === "pending" && request.borrowDate < (data.today ?? todayISO());
 
   const load = useCallback(async (nextStatus) => {
     setLoading(true);

@@ -195,7 +195,7 @@ const request = (id, borrowDate) => ({
 function render(page, requests, review = null) {
   globalThis.__A = {
     slot: 0,
-    state: { 1: { requests, counts: { pending: requests.length, approved: 0, rejected: 0, cancelled: 0 } }, 2: false, 5: review },
+    state: { 1: { requests, counts: { pending: requests.length, approved: 0, rejected: 0, cancelled: 0 }, today: todayISO() }, 2: false, 5: review },
   };
   return page.default();
 }

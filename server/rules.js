@@ -88,16 +88,9 @@ export function parseISODate(value) {
     : null;
 }
 
-// Today's calendar day in Cambodia, whatever zone the server runs in (Render runs in UTC). en-CA prints YYYY-MM-DD.
-const CAMBODIA_DAY = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Phnom_Penh",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
 export function todayISO(now = new Date()) {
-  return CAMBODIA_DAY.format(now);
+  // shortcut: Cambodia is UTC+7 all year with no daylight saving, revisit only if that changes.
+  return new Date(now.getTime() + 7 * 3600e3).toISOString().slice(0, 10);
 }
 
 export function addDaysISO(iso, days) {
