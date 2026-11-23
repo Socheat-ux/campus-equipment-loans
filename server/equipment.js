@@ -2,8 +2,14 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { equipmentInput } from "./rules.js";
 
-const selectColumns = "SELECT id, name, category, quantity FROM equipment";
-const asEquipment = (row) => ({ id: row.id, name: row.name, category: row.category, quantity: row.quantity });
+const selectColumns = "SELECT id, name, category, quantity, available FROM equipment";
+const asEquipment = (row) => ({
+  id: row.id,
+  name: row.name,
+  category: row.category,
+  quantity: row.quantity,
+  available: row.available,
+});
 
 export function equipmentRouter(db) {
   const router = Router();
@@ -42,8 +48,8 @@ export function equipmentRouter(db) {
     if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
 
     const info = db
-      .prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, ?, ?)")
-      .run(value.name, value.category, value.quantity);
+      .prepare("INSERT INTO equipment (name, category, quantity, available) VALUES (?, ?, ?, ?)")
+      .run(value.name, value.category, value.quantity, value.quantity);
     const row = db.prepare(`${selectColumns} WHERE id = ?`).get(Number(info.lastInsertRowid));
     res.status(201).json({ equipment: asEquipment(row) });
   });
@@ -57,9 +63,18 @@ export function equipmentRouter(db) {
     const { fields, value } = equipmentInput(req.body);
     if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
 
+    // The read above and the write below run with no await between them, so no approval or return can slip in.
+    // Counting the approved loans, not quantity - available, keeps the shelf right even if available ever drifted.
+    const onLoan = db
+      .prepare("SELECT COUNT(*) AS n FROM borrow_requests WHERE equipment_id = ? AND status = 'approved'")
+      .get(existing.id).n;
+    if (value.quantity < onLoan) {
+      const message = `Total cannot be lower than the ${onLoan} ${onLoan === 1 ? "item" : "items"} on loan.`;
+      return res.status(400).json({ error: "Please fix the fields below.", fields: { quantity: message } });
+    }
     db.prepare(
-      "UPDATE equipment SET name = ?, category = ?, quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    ).run(value.name, value.category, value.quantity, existing.id);
+      "UPDATE equipment SET name = ?, category = ?, quantity = ?, available = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    ).run(value.name, value.category, value.quantity, value.quantity - onLoan, existing.id);
     const row = db.prepare(`${selectColumns} WHERE id = ?`).get(existing.id);
     res.json({ equipment: asEquipment(row) });
   });

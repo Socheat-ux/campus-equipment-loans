@@ -107,8 +107,8 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
       const haystack = `${item.name} ${item.category}`.toLowerCase();
       if (!words.every((word) => haystack.includes(word))) return false;
       if (category !== "all" && item.category !== category) return false;
-      if (status === "available" && item.quantity <= 0) return false;
-      if (status === "out" && item.quantity > 0) return false;
+      if (status === "available" && item.available <= 0) return false;
+      if (status === "out" && item.available > 0) return false;
       return true;
     });
   }, [items, search, category, status]);
@@ -122,18 +122,22 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
 
   const totalRecords = items.length;
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalAvailable = items.reduce((sum, item) => sum + item.available, 0);
   // Only categories that have equipment, not the full list of choices offered in the form.
   const categoryCount = new Set(items.map((item) => item.category)).size;
 
   // Throws on a server error so the drawer can show it and stay open.
   async function handleSave(values, mode) {
     if (mode === "edit" && drawer?.item) {
-      const saved = preview ? { ...drawer.item, ...values } : await updateEquipment(drawer.item.id, values);
+      const onLoan = drawer.item.quantity - drawer.item.available;
+      const saved = preview
+        ? { ...drawer.item, ...values, available: values.quantity - onLoan }
+        : await updateEquipment(drawer.item.id, values);
       setItems((previous) => previous.map((item) => (item.id === saved.id ? saved : item)));
       setToast({ type: "success", message: "Equipment updated successfully." });
     } else {
       const nextId = items.reduce((max, item) => Math.max(max, item.id), 0) + 1;
-      const saved = preview ? { id: nextId, ...values } : await createEquipment(values);
+      const saved = preview ? { id: nextId, ...values, available: values.quantity } : await createEquipment(values);
       setItems((previous) => [saved, ...previous]);
       setPage(1);
       setToast({ type: "success", message: `“${values.name}” was added to the catalogue.` });
@@ -195,8 +199,8 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
           <StatCard
             Icon={CheckCircleIcon}
             label="Available Items"
-            value={totalQuantity}
-            note="Total quantity in stock"
+            value={totalAvailable}
+            note={`${totalAvailable} of ${totalQuantity} available`}
           />
           <StatCard
             Icon={CategoryIcon}
@@ -276,11 +280,11 @@ export default function EquipmentDashboard({ initialEquipment, user: userProp, o
                     </td>
                     <td><span className="dash-category">{item.category}</span></td>
                     <td>{item.quantity}</td>
-                    <td>{item.quantity}</td>
+                    <td>{item.available} of {item.quantity} available</td>
                     <td>
-                      <span className={`dash-status ${item.quantity > 0 ? "is-available" : "is-out"}`}>
+                      <span className={`dash-status ${item.available > 0 ? "is-available" : "is-out"}`}>
                         <span className="dot" />
-                        {item.quantity > 0 ? "Available" : "Out of stock"}
+                        {item.available > 0 ? "Available" : "Out of stock"}
                       </span>
                     </td>
                     {isAdmin && (

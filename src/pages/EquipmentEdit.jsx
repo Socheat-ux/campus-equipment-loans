@@ -11,6 +11,7 @@ export default function EquipmentEdit({ preview = false }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [onLoan, setOnLoan] = useState(0);
   const [error, setError] = useState("");
   const [fields, setFields] = useState({});
   const [success, setSuccess] = useState(false);
@@ -33,6 +34,7 @@ export default function EquipmentEdit({ preview = false }) {
         setName(item.name);
         setCategory(item.category);
         setQuantity(String(item.quantity));
+        setOnLoan(item.quantity - item.available);
         setLoaded(true);
       })
       .catch((err) => {
@@ -64,10 +66,14 @@ export default function EquipmentEdit({ preview = false }) {
       const item = await updateEquipment(id, { name, category, quantity });
       setName(item.name);
       setQuantity(String(item.quantity));
+      setOnLoan(item.quantity - item.available);
       setSuccess(true);
     } catch (err) {
       setError(err.message);
       setFields(err.fields || {});
+      // A refused save may mean the loans changed, so refresh the hint to match the server's message.
+      setBusy(false); // the form is usable again while the hint refreshes
+      if (err.status === 400) await getEquipment(id).then((item) => setOnLoan(item.quantity - item.available), () => {});
     } finally {
       setBusy(false);
     }
@@ -121,7 +127,7 @@ export default function EquipmentEdit({ preview = false }) {
           ))}
         </SelectField>
         <Field
-          label="Quantity"
+          label="Total quantity"
           name="quantity"
           type="number"
           inputMode="numeric"
@@ -129,8 +135,8 @@ export default function EquipmentEdit({ preview = false }) {
           step="1"
           errorId={shown}
           error={fields.quantity}
-          placeholder="Enter quantity"
-          hint="Quantity must be 0 or more."
+          placeholder="Enter total quantity"
+          hint={onLoan > 0 ? `${onLoan} on loan. Total must be ${onLoan} or more.` : "Quantity must be 0 or more."}
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
         />
