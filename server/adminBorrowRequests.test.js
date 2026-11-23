@@ -64,7 +64,7 @@ test("an admin sees pending requests with requester, item and stock details plus
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("cache-control"), "no-store");
   const data = await res.json();
-  assert.deepEqual(data.counts, { pending: 1, approved: 0, rejected: 0, cancelled: 0 });
+  assert.deepEqual(data.counts, { pending: 1, approved: 0, rejected: 0, returned: 0, cancelled: 0 });
   assert.equal(data.requests.length, 1);
   assert.deepEqual(data.requests[0], {
     id: request.id,
@@ -76,6 +76,7 @@ test("an admin sees pending requests with requester, item and stock details plus
     total: 3,
     userId: student.id,
     requesterName: "Sok Dara",
+    requesterEmail: "sok.dara@student.cadt.edu.kh",
     requesterRole: "student",
     borrowDate: request.borrowDate,
     returnDate: request.returnDate,

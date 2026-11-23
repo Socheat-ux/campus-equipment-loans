@@ -2,14 +2,16 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { addDaysISO, BORROW_MAX_DAYS, rejectionReasonError } from "./rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError } from "./rules.js";
 
-const STATUSES = ["pending", "approved", "rejected", "cancelled"];
+const STATUSES = ["pending", "approved", "rejected", "returned", "cancelled"];
+const SEARCH_MAX = 100;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.asset_id AS equipment_asset_id,
          e.location AS equipment_location, e.available AS stock, e.quantity AS total,
-         r.user_id, u.full_name AS requester_name, u.role AS requester_role,
+         r.user_id, u.full_name AS requester_name, u.email AS requester_email, u.role AS requester_role,
          r.borrow_date, r.return_date, r.purpose, r.status, r.created_at,
          r.decided_by, r.decided_at, r.decision_reason, r.returned_at
   FROM borrow_requests r
@@ -26,6 +28,7 @@ const asAdminRequest = (row) => ({
   total: row.total,
   userId: row.user_id,
   requesterName: row.requester_name,
+  requesterEmail: row.requester_email,
   requesterRole: row.requester_role,
   borrowDate: row.borrow_date,
   returnDate: row.return_date,
@@ -40,6 +43,79 @@ const asAdminRequest = (row) => ({
 
 class ConflictError extends Error {}
 const conflict = (message) => Object.assign(new ConflictError(message), { status: 409 });
+
+// LIKE treats % and _ as wildcards, so a search for "50%" escapes them with "!".
+const contains = (text) => `%${text.replace(/[!%_]/g, (c) => `!${c}`)}%`;
+
+// Turns the list's query string into a WHERE clause. Every value is bound, never pasted into the SQL.
+// status: one status or "all" (default "pending"); from and to: borrow date range, inclusive;
+// item: part of the item name or asset ID; borrower: part of the full name or email.
+export function historyFilter(query) {
+  const value = (name) => query[name] ?? "";
+  for (const name of ["status", "from", "to", "item", "borrower"]) {
+    if (typeof value(name) !== "string") return { error: `Use ${name} once.` };
+  }
+  const status = value("status") || "pending";
+  if (status !== "all" && !STATUSES.includes(status)) {
+    return { error: "Status must be pending, approved, rejected, returned, cancelled or all." };
+  }
+  const from = value("from");
+  const to = value("to");
+  if (from && !parseISODate(from)) return { error: "From must be a date like 2026-11-01." };
+  if (to && !parseISODate(to)) return { error: "To must be a date like 2026-11-30." };
+  if (from && to && from > to) return { error: "From must be on or before To." };
+  const item = value("item").trim();
+  const borrower = value("borrower").trim();
+  if (item.length > SEARCH_MAX || borrower.length > SEARCH_MAX) {
+    return { error: `Searches must be ${SEARCH_MAX} characters or fewer.` };
+  }
+  // A NUL would make LIKE match every row, so control characters are refused.
+  if (CONTROL_CHARS.test(item) || CONTROL_CHARS.test(borrower)) return { error: "Searches cannot contain control characters." };
+
+  const where = [];
+  const params = [];
+  const add = (sql, ...values) => {
+    where.push(sql);
+    params.push(...values);
+  };
+  if (status !== "all") add("r.status = ?", status);
+  if (from) add("r.borrow_date >= ?", from);
+  if (to) add("r.borrow_date <= ?", to);
+  // SQLite LIKE folds case for ASCII letters only, so "é" does not match "É".
+  if (item) add("(e.name LIKE ? ESCAPE '!' OR e.asset_id LIKE ? ESCAPE '!')", contains(item), contains(item));
+  if (borrower) add("(u.full_name LIKE ? ESCAPE '!' OR u.email LIKE ? ESCAPE '!')", contains(borrower), contains(borrower));
+  return { where: where.length ? where.join(" AND ") : "1 = 1", params };
+}
+
+// A cell that starts with = + - @ (also full-width, and after spaces or invisible characters) or with a tab or
+// carriage return would run as a formula in a spreadsheet, so it gets a leading apostrophe.
+// Cells with commas, quotes or line breaks are quoted (RFC 4180).
+export function csvCell(value) {
+  let text = value === null || value === undefined ? "" : String(value);
+  if (/^[\s\u200b]*[=+\-@＝＋－＠]|^[\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// Reports are read in Cambodia, so timestamps and the file date use Phnom Penh time whatever the server's zone is.
+const PHNOM_PENH = { timeZone: "Asia/Phnom_Penh" };
+const phnomPenhDate = (date = new Date()) => date.toLocaleDateString("sv-SE", PHNOM_PENH);
+const phnomPenhDateTime = (iso) => {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return iso ?? "";
+  return date.toLocaleString("sv-SE", { ...PHNOM_PENH, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+const CSV_COLUMNS = [
+  ["Request ID", (r) => r.id],
+  ["Item", (r) => r.equipmentName],
+  ["Asset ID", (r) => r.equipmentAssetId],
+  ["Borrower", (r) => r.requesterName],
+  ["Email", (r) => r.requesterEmail],
+  ["Borrow date", (r) => r.borrowDate],
+  ["Due date", (r) => r.returnDate],
+  ["Returned date", (r) => phnomPenhDateTime(r.returnedAt)],
+  ["Status", (r) => r.status],
+];
 
 export function adminBorrowRequestsRouter(db) {
   const router = Router();
@@ -58,17 +134,30 @@ export function adminBorrowRequestsRouter(db) {
     throw err;
   };
 
+  // shortcut: no paging, every matching row is returned; add LIMIT and OFFSET if a term grows past a few thousand loans.
+  const findHistory = ({ where, params }) =>
+    db.prepare(`${selectColumns} WHERE ${where} ORDER BY r.id DESC`).all(...params).map(asAdminRequest);
+
   router.get("/", (req, res) => {
-    const status = req.query.status === undefined ? "pending" : req.query.status;
-    if (!STATUSES.includes(status)) {
-      return res.status(400).json({ error: "Status must be pending, approved, rejected or cancelled." });
-    }
-    const rows = db.prepare(`${selectColumns} WHERE r.status = ? ORDER BY r.id DESC`).all(status);
+    const filter = historyFilter(req.query);
+    if (filter.error) return res.status(400).json({ error: filter.error });
+    const rows = findHistory(filter);
     const totals = Object.fromEntries(
       db.prepare("SELECT status, COUNT(*) AS n FROM borrow_requests GROUP BY status").all().map((row) => [row.status, row.n]),
     );
     const counts = Object.fromEntries(STATUSES.map((name) => [name, totals[name] ?? 0]));
-    return res.json({ requests: rows.map(asAdminRequest), counts });
+    return res.json({ requests: rows, counts });
+  });
+
+  // The same filters as the list, so the file holds exactly the rows the admin is looking at.
+  router.get("/export.csv", (req, res) => {
+    const filter = historyFilter(req.query);
+    if (filter.error) return res.status(400).json({ error: filter.error });
+    const lines = [CSV_COLUMNS.map(([title]) => title), ...findHistory(filter).map((r) => CSV_COLUMNS.map(([, cell]) => cell(r)))];
+    res.set("Content-Type", "text/csv; charset=utf-8");
+    res.set("Content-Disposition", `attachment; filename="borrowing-report-${phnomPenhDate()}.csv"`);
+    // The byte order mark makes Excel read the file as UTF-8.
+    return res.send(`\uFEFF${lines.map((line) => line.map(csvCell).join(",")).join("\r\n")}\r\n`);
   });
 
   router.post("/:id/approve", (req, res) => {
