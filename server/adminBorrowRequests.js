@@ -2,7 +2,10 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError } from "./rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError, todayISO } from "./rules.js";
+
+// Approving after the start date would create a loan that is already late, so the admin rejects instead.
+const START_PASSED = "The start date has passed. Reject this request so the student can send a new one.";
 
 const STATUSES = ["pending", "approved", "rejected", "returned", "cancelled"];
 const SEARCH_MAX = 100;
@@ -146,7 +149,7 @@ export function adminBorrowRequestsRouter(db) {
       db.prepare("SELECT status, COUNT(*) AS n FROM borrow_requests GROUP BY status").all().map((row) => [row.status, row.n]),
     );
     const counts = Object.fromEntries(STATUSES.map((name) => [name, totals[name] ?? 0]));
-    return res.json({ requests: rows, counts });
+    return res.json({ requests: rows, counts, today: todayISO() });
   });
 
   // The same filters as the list, so the file holds exactly the rows the admin is looking at.
@@ -166,12 +169,14 @@ export function adminBorrowRequestsRouter(db) {
     const request = findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
     if (request.status !== "pending") return res.status(409).json({ error: "Only pending requests can be approved." });
+    if (request.borrow_date < todayISO()) return res.status(409).json({ error: START_PASSED });
     if (request.stock < 1) return res.status(409).json({ error: "This item is no longer available." });
 
     try {
       withTransaction(db, () => {
         const current = currentRequest(id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be approved.");
+        if (current.borrow_date < todayISO()) throw conflict(START_PASSED);
         const equipment = db
           .prepare("SELECT id, name, location, available FROM equipment WHERE id = ?")
           .get(current.equipment_id);

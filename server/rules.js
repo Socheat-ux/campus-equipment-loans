@@ -89,10 +89,8 @@ export function parseISODate(value) {
 }
 
 export function todayISO(now = new Date()) {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  // shortcut: Cambodia is UTC+7 all year with no daylight saving, revisit only if that changes.
+  return new Date(now.getTime() + 7 * 3600e3).toISOString().slice(0, 10);
 }
 
 export function addDaysISO(iso, days) {

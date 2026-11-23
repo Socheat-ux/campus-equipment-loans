@@ -3,7 +3,7 @@ import DashboardLayout from "../layouts/DashboardLayout.jsx";
 import Toast from "../components/equipment/Toast.jsx";
 import { ErrorText } from "../auth/AuthUI.jsx";
 import { formatDate } from "../equipment/cards.js";
-import { REJECTION_REASON_MAX } from "../../server/rules.js";
+import { REJECTION_REASON_MAX, todayISO } from "../../server/rules.js";
 import {
   approveBorrowRequest,
   cancelBorrowRequestAdmin,
@@ -34,6 +34,8 @@ export default function AdminBorrowRequests() {
   const [adminCancel, setAdminCancel] = useState(null); // { id, requesterName, equipmentName }
   const [adminCancelReason, setAdminCancelReason] = useState("");
   const [adminCancelError, setAdminCancelError] = useState("");
+  // A pending request whose start date is before today (Cambodia day from the server) can only be rejected.
+  const startPassed = (request) => request.status === "pending" && request.borrowDate < (data.today ?? todayISO());
 
   const load = useCallback(async (nextStatus) => {
     setLoading(true);
@@ -206,12 +208,15 @@ export default function AdminBorrowRequests() {
                         <td className="dash-actions-col">
                           {request.status === "pending" ? (
                             <div className="dash-request-actions">
+                              {startPassed(request) && <span className="dash-status is-out">Start date passed</span>}
                               <button type="button" className="dash-reject-btn" disabled={busy} onClick={() => openReview(request)}>
                                 Reject
                               </button>
-                              <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
-                                Approve
-                              </button>
+                              {!startPassed(request) && (
+                                <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
+                                  Approve
+                                </button>
+                              )}
                             </div>
                           ) : (request.status === "approved" || request.status === "rejected") ? (
                             <div className="dash-request-actions">
@@ -274,7 +279,11 @@ export default function AdminBorrowRequests() {
                     <div><dt>Return by</dt><dd>{formatDate(review.returnDate)}</dd></div>
                     <div><dt>Purpose</dt><dd>{review.purpose || "—"}</dd></div>
                   </dl>
-                  <p className="dash-review-note">{review.stock} of {review.total} available. Approving reserves this item for the borrow dates.</p>
+                  <p className="dash-review-note">
+                    {startPassed(review)
+                      ? "Start date passed. Reject this request so the student can send a new one."
+                      : `${review.stock} of ${review.total} available. Approving reserves this item for the borrow dates.`}
+                  </p>
                 </>
               ) : (
                 <>
@@ -299,9 +308,11 @@ export default function AdminBorrowRequests() {
                 <>
                   <button type="button" className="btn-outline" onClick={closeReview} disabled={busy}>Cancel</button>
                   <button type="button" className="dash-reject-btn" onClick={() => setStage("reject")} disabled={busy}>Reject</button>
-                  <button type="button" className="btn-primary dash-save-btn" onClick={() => decide("approve")} disabled={busy}>
-                    Approve request
-                  </button>
+                  {!startPassed(review) && (
+                    <button type="button" className="btn-primary dash-save-btn" onClick={() => decide("approve")} disabled={busy}>
+                      Approve request
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
