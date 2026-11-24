@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import StudentHeader from "../components/StudentHeader.jsx";
 import { getEquipment } from "../equipment/api.js";
@@ -21,6 +21,7 @@ export default function BorrowRequestNew() {
   const [error, setError] = useState("");
   const [fields, setFields] = useState({});
   const [busy, setBusy] = useState(false);
+  const [existingRequestId, setExistingRequestId] = useState(null); // set when the server says a pending request already exists
 
   const errorId = useId();
   const dateFieldId = useId();
@@ -53,6 +54,12 @@ export default function BorrowRequestNew() {
     };
   }, [equipmentId]);
 
+  // Memoised so ErrorText (which refocuses when its children change) does not refocus on every keystroke.
+  const alertContent = useMemo(
+    () => (error && existingRequestId ? <>{error} <Link to="/requests">View my requests</Link></> : error),
+    [error, existingRequestId],
+  );
+
   const returnDate = borrowDate ? addDaysISO(borrowDate, item?.maxDays ?? BORROW_MAX_DAYS) : "";
   const unavailable = Boolean(item && !item.available);
   const borrowFieldError = fields.borrowDate;
@@ -61,6 +68,7 @@ export default function BorrowRequestNew() {
     event.preventDefault();
     setError("");
     setFields({});
+    setExistingRequestId(null);
 
     if (!item) {
       setError(loadError || "Choose an item from the catalog to start a request.");
@@ -91,6 +99,7 @@ export default function BorrowRequestNew() {
     } catch (err) {
       setError(err.message);
       setFields(err.fields || {});
+      setExistingRequestId(err.existingRequestId ?? null);
       setBusy(false);
     }
   }
@@ -179,7 +188,7 @@ export default function BorrowRequestNew() {
                   </p>
                 )}
 
-                <ErrorText id={errorId}>{error}</ErrorText>
+                <ErrorText id={errorId}>{alertContent}</ErrorText>
 
                 <div className="request-actions">
                   <Link className="btn-request-secondary" to="/">

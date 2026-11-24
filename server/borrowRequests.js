@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireRole } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { MESSAGE_MAX, notify, notifyAdmins } from "./notifications.js";
-import { borrowRequestInput } from "./rules.js";
+import { borrowRequestInput, todayISO } from "./rules.js";
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.category AS equipment_category,
@@ -63,6 +63,22 @@ export function borrowRequestsRouter(db) {
       .prepare("SELECT id, name, available FROM equipment WHERE id = ?")
       .get(value.equipmentId);
     if (!equipment) return res.status(404).json({ error: "Equipment not found." });
+    // shortcut: the check and the insert run with no await between them, so one Node process cannot double up;
+    // add a partial unique index (user_id, equipment_id) WHERE status = 'pending' when moving to Postgres or several servers.
+    const existing = db
+      .prepare("SELECT id, borrow_date FROM borrow_requests WHERE user_id = ? AND equipment_id = ? AND status = 'pending' ORDER BY id LIMIT 1")
+      .get(req.user.id, equipment.id);
+    if (existing) {
+      return res.status(409).json({
+        // A pending request whose start date has passed can no longer be approved, so waiting is pointless.
+        error:
+          existing.borrow_date < todayISO()
+            ? `You already have a pending request for ${equipment.name} starting ${existing.borrow_date}. Its start date has passed, so cancel it in My requests and send a new one.`
+            : `You already have a pending request for ${equipment.name} starting ${existing.borrow_date}. Cancel it in My requests or wait for a decision.`,
+        existingRequestId: existing.id,
+      });
+    }
+
     if (equipment.available < 1) {
       return res.status(400).json({
         error: "This item is no longer available.",
