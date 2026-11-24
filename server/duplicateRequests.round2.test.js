@@ -179,7 +179,7 @@ test("the request page shows a View my requests link inside the alert only for a
   };
   // state slots: item, loading, loadError, borrowDate, purpose, error, fields, busy, existingRequestId
   globalThis.__U = {
-    state: { 0: asCard({ id: 2, name: "Rode mic", category: "Audio", quantity: 2, available: 1 }), 1: false, 3: todayISO() },
+    state: { 0: asCard({ id: 2, name: "Rode mic", category: "Audio", quantity: 2, available: 1 }), 1: false, 3: addDaysISO(todayISO(), 1) },
     memo: [],
     slot: 0,
     memoSlot: 0,
