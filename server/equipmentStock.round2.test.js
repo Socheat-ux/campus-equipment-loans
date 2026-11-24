@@ -249,12 +249,12 @@ test("200 random operations never break 0 <= available <= total or total - avail
 
     if (op === "request") {
       const who = Math.floor(rand() * 6);
-      // SCRUM-46: a student can hold only one pending request per item.
+      // SCRUM-46: a student can hold only one pending request per item; that rule is checked before stock.
       const waiting = h.db
         .prepare("SELECT 1 FROM borrow_requests r JOIN users u ON u.id = r.user_id WHERE u.email = ? AND r.equipment_id = ? AND r.status = 'pending'")
         .get(`keo.bopha${who + 1}@student.cadt.edu.kh`, id);
       const res = await h.ask(who, id);
-      assert.equal(res.status, before.available < 1 ? 400 : waiting ? 409 : 201, `step ${step} request`);
+      assert.equal(res.status, waiting ? 409 : before.available < 1 ? 400 : 201, `step ${step} request`);
     } else if (op === "approve" || op === "reject") {
       const pending = byStatus(id, "pending");
       if (pending.length) {

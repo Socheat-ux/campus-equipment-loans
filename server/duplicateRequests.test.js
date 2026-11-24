@@ -55,7 +55,7 @@ test("a second pending request for the same item gets a 409 that names the first
   const second = await h.ask(student, camera);
   assert.equal(second.status, 409);
   assert.deepEqual(second.body, {
-    error: `You already have a pending request for Canon EOS 250D Camera (request #${first.body.request.id}). Cancel it or wait for a decision.`,
+    error: `You already have a pending request for Canon EOS 250D Camera starting ${addDaysISO(todayISO(), 1)}. Cancel it in My requests or wait for a decision.`,
     existingRequestId: first.body.request.id,
   });
   assert.equal(h.pending(student, camera), 1);

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import StudentHeader from "../components/StudentHeader.jsx";
 import { getEquipment } from "../equipment/api.js";
@@ -53,6 +53,12 @@ export default function BorrowRequestNew() {
       live = false;
     };
   }, [equipmentId]);
+
+  // Memoised so ErrorText (which refocuses when its children change) does not refocus on every keystroke.
+  const alertContent = useMemo(
+    () => (error && existingRequestId ? <>{error} <Link to="/requests">View my requests</Link></> : error),
+    [error, existingRequestId],
+  );
 
   const returnDate = borrowDate ? addDaysISO(borrowDate, item?.maxDays ?? BORROW_MAX_DAYS) : "";
   const unavailable = Boolean(item && !item.available);
@@ -182,12 +188,7 @@ export default function BorrowRequestNew() {
                   </p>
                 )}
 
-                <ErrorText id={errorId}>{error}</ErrorText>
-                {existingRequestId && (
-                  <p className="request-note">
-                    <Link to="/requests">View my requests</Link>
-                  </p>
-                )}
+                <ErrorText id={errorId}>{alertContent}</ErrorText>
 
                 <div className="request-actions">
                   <Link className="btn-request-secondary" to="/">
