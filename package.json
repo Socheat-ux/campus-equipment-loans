@@ -9,11 +9,11 @@
   "scripts": {
     "dev": "vite",
     "dev:all": "node scripts/dev.js",
-    "dev:server": "node --env-file-if-exists=.env --watch server/index.js",
+    "dev:server": "node --env-file-if-exists=.env --watch backend/index.js",
     "build": "vite build",
-    "start": "node --env-file-if-exists=.env server/index.js",
-    "test": "node --test server/*.test.js",
-    "seed:test": "node --env-file-if-exists=.env server/seed-dev.js"
+    "start": "node --env-file-if-exists=.env backend/index.js",
+    "test": "node --test backend/*.test.js",
+    "seed:test": "node --env-file-if-exists=.env backend/seed-dev.js"
   },
   "dependencies": {
     "express": "^4.22.3",

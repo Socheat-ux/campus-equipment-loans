@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 
 const start = (args) => spawn(process.execPath, args, { stdio: "inherit" });
 const children = [
-  start(["--env-file-if-exists=.env", "--watch", "server/index.js"]),
+  start(["--env-file-if-exists=.env", "--watch", "backend/index.js"]),
   start(["node_modules/vite/bin/vite.js", "--strictPort"]),
 ];
 

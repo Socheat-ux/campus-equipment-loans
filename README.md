@@ -27,6 +27,13 @@ Run the tests with `npm test`. For a single-process build, run `npm run build` a
 
 Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. The npm scripts read a `.env` file when there is one; variables already set in the shell or on the host win. Set `NODE_ENV=production` when deployed. Set `TRUST_PROXY=1` only behind a proxy you control.
 
+## Folders
+
+- `frontend/`: the React app (`src/` and `index.html`). `vite.config.js` stays at the root and points Vite at this folder.
+- `backend/`: the Express API and its tests.
+- `shared/rules.js`: validation rules that both the forms and the API use.
+- The root keeps `package.json`, `.env`, `data/` (the SQLite database) and the build output `dist/`. Run every npm command from the root.
+
 ## Equipment and administrators
 
 Administrators manage equipment at `/equipment/new` and `/equipment/:id/edit`, and view each account's role at `/users`. The catalogue at `/` is public, and the dashboard at `/dashboard` lists the same equipment for every signed-in user, with search and filters. The API is mounted at `/api/equipment`: `GET` is public so visitors can browse the catalogue, while add and edit use `requireAdmin(db)`, so students and faculty get `403`.
@@ -45,7 +52,7 @@ node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const d
 
 ## Borrow requests
 
-Students and faculty start a request from the catalogue button at `/requests/new?equipmentId=<id>`, or from the "My requests" link in the header. The form picks a borrow date from today onwards; the return date is always seven days later, calculated by the shared rules in `server/rules.js`, so a return date sent by the browser is ignored. A new request is `pending` and does not change the item's stock. The caller sees their requests at `/requests` and the submitted request at `/requests/:id/confirmation`. They can cancel a pending request of their own from My requests; the page asks for confirmation before it is cancelled.
+Students and faculty start a request from the catalogue button at `/requests/new?equipmentId=<id>`, or from the "My requests" link in the header. The form picks a borrow date from today onwards; the return date is always seven days later, calculated by the shared rules in `shared/rules.js`, so a return date sent by the browser is ignored. A new request is `pending` and does not change the item's stock. The caller sees their requests at `/requests` and the submitted request at `/requests/:id/confirmation`. They can cancel a pending request of their own from My requests; the page asks for confirmation before it is cancelled.
 
 The API is mounted at `/api/borrow-requests`: `GET /` lists the caller's requests, `GET /:id` returns one of their own, and `POST /` accepts `{ "equipmentId": 1, "borrowDate": "YYYY-MM-DD", "purpose": "Final year project" }` (`purpose` is optional). Students and faculty can use these routes; signed-out visitors get `401` and administrators get `403`. Submitting saves the request and `request_submitted` notifications for the borrower and every administrator in one transaction. An administrator's bell also backfills notices for older requests that were saved before their account existed, ordered by request date, without creating duplicates. Approval sets the due date to seven days after the requested borrow date. Admins record returns from the approved requests list; the app saves the actual return time and restores the equipment stock.
 
@@ -54,17 +61,17 @@ Students and faculty can cancel their own pending requests through `POST /api/bo
 
 ## Add to it
 
-- Protect an API route with `requireAuth(db)` (any signed-in user) or `requireRole(db, "admin")` (only those roles; `requireRole(db, "student", "faculty")` works too) from `server/auth.js`. Both answer 401 without a session, `requireRole` answers 403 for other roles, and both set `req.user` to `{ id, email, fullName, role }`. A misspelt role name stops the server at startup. `requireAdmin(db)` is the same as `requireRole(db, "admin")`.
-- List every new API route in `ROUTES` in `server/roles.test.js` with who may use it. The test fails until you do, and then checks the route answers 401 and 403 to the right people.
-- Share validation between the form and the server by adding it to `server/rules.js`, as `equipmentInput` does.
-- Mount new routers in `server/app.js`, above the `/api` not-found handler.
-- Wrap signed-in dashboard pages in `DashboardLayout` from `src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `src/App.jsx` inside `<RoleGate roles={["admin"]}>` (only those roles; list all three roles for any signed-in user). `<Gate>` is only for the log in and sign up pages, which signed-in users skip. With `RoleGate`, a signed-out visitor goes to the login page and comes back after signing in, and a signed-in user with another role sees a "not allowed" page. The browser check only decides what to show, so protect the matching API routes with `requireRole` too.
-- Put tests directly in `server/` with a `.test.js` name, so `npm test` finds them.
-- Send a user a notification with `notify(db, { userId, type, message, reason })` from `server/notifications.js`. A rejection needs a `reason`; a `reason` passed with an approval is ignored. The `message` can be up to 300 characters (`MESSAGE_MAX`) and the `reason` up to 500 (`REASON_MAX`). A too-long or empty `message` or `reason` makes `notify` throw, so the caller should check the administrator's reason first and answer 400. Call it inside `withTransaction(db, () => { ... })` from `server/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
+- Protect an API route with `requireAuth(db)` (any signed-in user) or `requireRole(db, "admin")` (only those roles; `requireRole(db, "student", "faculty")` works too) from `backend/auth.js`. Both answer 401 without a session, `requireRole` answers 403 for other roles, and both set `req.user` to `{ id, email, fullName, role }`. A misspelt role name stops the server at startup. `requireAdmin(db)` is the same as `requireRole(db, "admin")`.
+- List every new API route in `ROUTES` in `backend/roles.test.js` with who may use it. The test fails until you do, and then checks the route answers 401 and 403 to the right people.
+- Share validation between the form and the server by adding it to `shared/rules.js`, as `equipmentInput` does.
+- Mount new routers in `backend/app.js`, above the `/api` not-found handler.
+- Wrap signed-in dashboard pages in `DashboardLayout` from `frontend/src/layouts/DashboardLayout.jsx`. It brings the sidebar, the top bar and log out. Add the route in `frontend/src/App.jsx` inside `<RoleGate roles={["admin"]}>` (only those roles; list all three roles for any signed-in user). `<Gate>` is only for the log in and sign up pages, which signed-in users skip. With `RoleGate`, a signed-out visitor goes to the login page and comes back after signing in, and a signed-in user with another role sees a "not allowed" page. The browser check only decides what to show, so protect the matching API routes with `requireRole` too.
+- Put tests directly in `backend/` with a `.test.js` name, so `npm test` finds them.
+- Send a user a notification with `notify(db, { userId, type, message, reason })` from `backend/notifications.js`. A rejection needs a `reason`; a `reason` passed with an approval is ignored. The `message` can be up to 300 characters (`MESSAGE_MAX`) and the `reason` up to 500 (`REASON_MAX`). A too-long or empty `message` or `reason` makes `notify` throw, so the caller should check the administrator's reason first and answer 400. Call it inside `withTransaction(db, () => { ... })` from `backend/db.js` (it throws a `TypeError` outside one), together with the change it reports, so both are saved or neither is. The function you pass must not be `async`. New kinds of notification go in `NOTIFICATION_TYPES`.
 
 ## Roles
 
-There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `server/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `server/rules.js` is the shared list of allowed values.
+There are three roles: `student`, `faculty` and `admin` (listed in `ROLES` in `shared/rules.js`). Students and faculty use the catalogue and their own `/requests` pages. Only administrators can open `/dashboard`, `/users`, `/equipment/new` and `/equipment/:id/edit`, and only they see the Dashboard link. The others get a "not allowed" page with a way back to the catalogue. The Users page shows these roles as read-only marks; `ROLES` in `shared/rules.js` is the shared list of allowed values.
 
 ## Notifications
 
