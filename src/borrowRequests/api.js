@@ -17,6 +17,7 @@ async function request(path, { method = "GET", body } = {}) {
     throw Object.assign(new Error(data?.error ?? "Something went wrong. Try again."), {
       status: res.status,
       fields: data?.fields,
+      existingRequestId: data?.existingRequestId,
     });
   }
   return data;

@@ -70,6 +70,18 @@ export function borrowRequestsRouter(db) {
       });
     }
 
+    // shortcut: the check and the insert run with no await between them, so one Node process cannot double up;
+    // add a partial unique index (user_id, equipment_id) WHERE status = 'pending' when moving to Postgres or several servers.
+    const existing = db
+      .prepare("SELECT id FROM borrow_requests WHERE user_id = ? AND equipment_id = ? AND status = 'pending' ORDER BY id LIMIT 1")
+      .get(req.user.id, equipment.id);
+    if (existing) {
+      return res.status(409).json({
+        error: `You already have a pending request for ${equipment.name} (request #${existing.id}). Cancel it or wait for a decision.`,
+        existingRequestId: existing.id,
+      });
+    }
+
     const id = withTransaction(db, () => {
       const info = db
         .prepare(

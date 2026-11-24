@@ -21,6 +21,7 @@ export default function BorrowRequestNew() {
   const [error, setError] = useState("");
   const [fields, setFields] = useState({});
   const [busy, setBusy] = useState(false);
+  const [existingRequestId, setExistingRequestId] = useState(null); // set when the server says a pending request already exists
 
   const errorId = useId();
   const dateFieldId = useId();
@@ -61,6 +62,7 @@ export default function BorrowRequestNew() {
     event.preventDefault();
     setError("");
     setFields({});
+    setExistingRequestId(null);
 
     if (!item) {
       setError(loadError || "Choose an item from the catalog to start a request.");
@@ -91,6 +93,7 @@ export default function BorrowRequestNew() {
     } catch (err) {
       setError(err.message);
       setFields(err.fields || {});
+      setExistingRequestId(err.existingRequestId ?? null);
       setBusy(false);
     }
   }
@@ -180,6 +183,11 @@ export default function BorrowRequestNew() {
                 )}
 
                 <ErrorText id={errorId}>{error}</ErrorText>
+                {existingRequestId && (
+                  <p className="request-note">
+                    <Link to="/requests">View my requests</Link>
+                  </p>
+                )}
 
                 <div className="request-actions">
                   <Link className="btn-request-secondary" to="/">
