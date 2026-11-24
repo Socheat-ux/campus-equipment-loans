@@ -35,8 +35,8 @@ async function start(t) {
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
   const item = (name, quantity = 3) =>
     Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?)").run(name, quantity).lastInsertRowid);
-  const ask = (user, equipmentId) =>
-    call("POST", "/api/borrow-requests", user.cookie, { equipmentId, borrowDate: addDaysISO(todayISO(), 1), purpose: "Club event" });
+  const ask = (user, equipmentId, borrowDate = addDaysISO(todayISO(), 1)) =>
+    call("POST", "/api/borrow-requests", user.cookie, { equipmentId, borrowDate, purpose: "Club event" });
   const adminDo = (id, action, body) => call("POST", `/api/admin/borrow-requests/${id}/${action}`, admin.cookie, body);
   const pending = (user, equipmentId) =>
     db.prepare("SELECT COUNT(*) AS n FROM borrow_requests WHERE user_id = ? AND equipment_id = ? AND status = 'pending'").get(user.id, equipmentId).n;
@@ -48,14 +48,15 @@ test("a second pending request for the same item gets a 409 that names the first
   const h = await start(t);
   const student = await h.signup("meas.rithy@student.cadt.edu.kh");
   const camera = h.item("Canon EOS 250D Camera");
-  const first = await h.ask(student, camera);
+  const day = addDaysISO(todayISO(), 1); // fixed once so a midnight rollover cannot split the request from the message
+  const first = await h.ask(student, camera, day);
   assert.equal(first.status, 201);
   const noticesBefore = h.notices();
 
-  const second = await h.ask(student, camera);
+  const second = await h.ask(student, camera, day);
   assert.equal(second.status, 409);
   assert.deepEqual(second.body, {
-    error: `You already have a pending request for Canon EOS 250D Camera starting ${addDaysISO(todayISO(), 1)}. Cancel it in My requests or wait for a decision.`,
+    error: `You already have a pending request for Canon EOS 250D Camera starting ${day}. Cancel it in My requests or wait for a decision.`,
     existingRequestId: first.body.request.id,
   });
   assert.equal(h.pending(student, camera), 1);

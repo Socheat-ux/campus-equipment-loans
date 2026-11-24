@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireRole } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { MESSAGE_MAX, notify, notifyAdmins } from "./notifications.js";
-import { borrowRequestInput } from "./rules.js";
+import { borrowRequestInput, todayISO } from "./rules.js";
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.category AS equipment_category,
@@ -70,7 +70,11 @@ export function borrowRequestsRouter(db) {
       .get(req.user.id, equipment.id);
     if (existing) {
       return res.status(409).json({
-        error: `You already have a pending request for ${equipment.name} starting ${existing.borrow_date}. Cancel it in My requests or wait for a decision.`,
+        // A pending request whose start date has passed can no longer be approved, so waiting is pointless.
+        error:
+          existing.borrow_date < todayISO()
+            ? `You already have a pending request for ${equipment.name} starting ${existing.borrow_date}. Its start date has passed, so cancel it in My requests and send a new one.`
+            : `You already have a pending request for ${equipment.name} starting ${existing.borrow_date}. Cancel it in My requests or wait for a decision.`,
         existingRequestId: existing.id,
       });
     }

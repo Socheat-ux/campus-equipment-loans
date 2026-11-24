@@ -48,11 +48,11 @@ async function start(t) {
       .all(user.id, equipmentId)
       .map((r) => r.id);
   // A row written straight to the table, the way a database from before SCRUM-46 could hold it.
-  const legacyPending = (user, equipmentId) =>
+  const legacyPending = (user, equipmentId, date = tomorrow()) =>
     Number(
       db
         .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending')")
-        .run(equipmentId, user.id, tomorrow(), addDaysISO(tomorrow(), 7)).lastInsertRowid,
+        .run(equipmentId, user.id, date, addDaysISO(date, 7)).lastInsertRowid,
     );
   return { db, port, call, signup, item, ask, adminDo, pendingIds, legacyPending };
 }
@@ -61,20 +61,21 @@ test("legacy duplicates: the 409 names the oldest, each can be cancelled, and on
   const h = await start(t);
   const student = await h.signup("touch.sovann@student.cadt.edu.kh");
   const camera = h.item("Canon camera");
-  const [a, b] = [h.legacyPending(student, camera), h.legacyPending(student, camera)];
+  const day = tomorrow();
+  const [a, b] = [h.legacyPending(student, camera, day), h.legacyPending(student, camera, day)];
 
-  const refused = await h.ask(student, camera);
+  const refused = await h.ask(student, camera, day);
   assert.equal(refused.status, 409);
   assert.equal(refused.body.existingRequestId, a, "the oldest pending request is named");
-  assert.equal(refused.body.error, message("Canon camera", tomorrow()));
+  assert.equal(refused.body.error, message("Canon camera", day));
 
   assert.equal((await h.call("POST", `/api/borrow-requests/${a}/cancel`, student.cookie, {})).status, 200);
-  const stillRefused = await h.ask(student, camera);
+  const stillRefused = await h.ask(student, camera, day);
   assert.equal(stillRefused.status, 409, "the second legacy duplicate still blocks");
   assert.equal(stillRefused.body.existingRequestId, b);
 
   assert.equal((await h.call("POST", `/api/borrow-requests/${b}/cancel`, student.cookie, {})).status, 200);
-  assert.equal((await h.ask(student, camera)).status, 201);
+  assert.equal((await h.ask(student, camera, day)).status, 201);
   assert.equal(h.pendingIds(student, camera).length, 1);
 });
 
@@ -95,7 +96,8 @@ test("order of refusals: fields, then unknown item, then the duplicate, then sto
   const h = await start(t);
   const student = await h.signup("chan.dalin@student.cadt.edu.kh");
   const lens = h.item("Sigma lens", 1);
-  const mine = await h.ask(student, lens);
+  const day = tomorrow();
+  const mine = await h.ask(student, lens, day);
   assert.equal(mine.status, 201);
 
   const badDate = await h.ask(student, lens, "2020-01-01");
@@ -107,15 +109,15 @@ test("order of refusals: fields, then unknown item, then the duplicate, then sto
 
   // Another student takes the only copy; the item is out of stock but the first student still has a pending request.
   const other = await h.signup("pen.rotha@student.cadt.edu.kh");
-  assert.equal((await h.adminDo((await h.ask(other, lens)).body.request.id, "approve")).status, 200);
-  const empty = await h.ask(student, lens);
+  assert.equal((await h.adminDo((await h.ask(other, lens, day)).body.request.id, "approve")).status, 200);
+  const empty = await h.ask(student, lens, day);
   assert.equal(empty.status, 409, "the duplicate rule wins over the stock rule");
-  assert.deepEqual(empty.body, { error: message("Sigma lens", tomorrow()), existingRequestId: mine.body.request.id });
+  assert.deepEqual(empty.body, { error: message("Sigma lens", day), existingRequestId: mine.body.request.id });
   assert.deepEqual(h.pendingIds(student, lens), [mine.body.request.id]);
 
   // A student with no pending request still hears that the item is out of stock.
   const third = await h.signup("sam.nika@student.cadt.edu.kh");
-  const none = await h.ask(third, lens);
+  const none = await h.ask(third, lens, day);
   assert.equal(none.status, 400);
   assert.equal(none.body.existingRequestId, undefined);
   assert.deepEqual(h.pendingIds(third, lens), []);
@@ -127,15 +129,16 @@ test("a student cannot learn about someone else's request: the 409 only ever nam
   const two = await h.signup("ouk.chanthy@student.cadt.edu.kh");
   const tripod = h.item("Manfrotto tripod");
   const theirDate = addDaysISO(todayISO(), 3);
+  const day = tomorrow();
   const theirs = await h.ask(two, tripod, theirDate);
-  const mine = await h.ask(one, tripod);
+  const mine = await h.ask(one, tripod, day);
   assert.equal(mine.status, 201);
 
-  const again = await h.ask(one, tripod);
+  const again = await h.ask(one, tripod, day);
   assert.equal(again.status, 409);
   assert.equal(again.body.existingRequestId, mine.body.request.id);
   assert.notEqual(again.body.existingRequestId, theirs.body.request.id);
-  assert.equal(again.body.error, message("Manfrotto tripod", tomorrow()));
+  assert.equal(again.body.error, message("Manfrotto tripod", day));
   assert.ok(!again.body.error.includes(theirDate));
   assert.equal((await h.call("GET", `/api/borrow-requests/${again.body.existingRequestId}`, one.cookie)).status, 200);
 });
