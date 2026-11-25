@@ -20,9 +20,13 @@ test("email rules pick the role and keep Southeast Asian name order", () => {
 });
 
 test("signup, me, logout, login", async (t) => {
-  const server = createApp(openDb(":memory:")).listen(0, "127.0.0.1");
+  const db = await openDb(":memory:");
+  const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const base = `http://127.0.0.1:${server.address().port}/api/auth`;
   let cookie = "";
   const call = async (path, body) => {

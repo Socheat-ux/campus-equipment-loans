@@ -13,10 +13,13 @@ const student = (name) => `${name}@student.cadt.edu.kh`;
 
 // Every test builds its own app, db and limiter with small injected limits, so no state leaks between tests.
 async function start(t, options) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db, options).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const port = server.address().port;
   const root = `http://127.0.0.1:${port}`;
   const post = (path, body, headers = {}) =>
@@ -76,7 +79,7 @@ test("bulk signups from one address are capped", async (t) => {
   const { db, post } = await start(t, { ipSuccesses: 4 });
   for (let i = 0; i < 4; i++) assert.equal((await post("/signup", { email: student(`bulk.n${i}`), password: GOOD })).status, 201);
   assert.equal((await post("/signup", { email: student("bulk.n4"), password: GOOD })).status, 429);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users").get().n, 4);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM users").get()).n, 4);
 });
 
 test("weak-password and bad-email signups never use up attempts", async (t) => {
@@ -142,7 +145,7 @@ test("sessions per user are capped and the oldest goes first", async (t) => {
   const email = student("many.devices");
   const tokens = [tokenOf(await post("/signup", { email, password: GOOD }))];
   for (let i = 0; i < 4; i++) tokens.push(tokenOf(await post("/login", { email, password: GOOD })));
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id = 1").get().n, 3);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM sessions WHERE user_id = 1").get()).n, 3);
   assert.equal((await get("/me", `sid=${tokens[0]}`)).status, 401);
   assert.equal((await get("/me", `sid=${tokens[1]}`)).status, 401);
   assert.equal((await get("/me", `sid=${tokens[2]}`)).status, 200);

@@ -5,11 +5,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
 import { build } from "esbuild";
 import { openDb, withTransaction } from "./db.js";
 import { createApp } from "./app.js";
@@ -20,10 +19,13 @@ const realFetch = globalThis.fetch; // the UI harness swaps fetch, so the test c
 const realGlobals = { setInterval, clearInterval, fetch: realFetch, document: globalThis.document, window: globalThis.window };
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, { body, cookie } = {}) =>
     realFetch(`${root}${path}`, {
@@ -37,14 +39,15 @@ async function start(t) {
     const { user } = await res.json();
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
   };
-  const unreadInDb = (userId) => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
+  const unreadInDb = async (userId) =>
+    (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId)).n;
   return { db, root, call, signup, unreadInDb };
 }
 
 // notify needs a transaction; callers inside withTransaction already have one.
 const approve = (db, userId, message = "ok") => {
-  const run = () => notify(db, { userId, type: "request_approved", message });
-  return db.isTransaction ? run() : withTransaction(db, run);
+  const run = (conn) => notify(conn, { userId, type: "request_approved", message });
+  return db.isTransaction ? run(db) : withTransaction(db, run);
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -237,15 +240,15 @@ async function mountBell(t, { root, cookie, userId }) {
 test("guard (fix 4): a poll answered before the mark-read is dropped, so the opened panel stays read", async (t) => {
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "one");
-  approve(db, a.id, "two");
+  await approve(db, a.id, "one");
+  await approve(db, a.id, "two");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   assert.equal(bell.label(), "Notifications, 2 unread");
 
   bell.holdNext((method) => method === "GET"); // this poll's answer (2 unread) is computed now but arrives late
   await bell.poll();
   await bell.click();
-  assert.equal(unreadInDb(a.id), 0);
+  assert.equal(await unreadInDb(a.id), 0);
   assert.equal(bell.label(), "Notifications, 0 unread");
   assert.equal(bell.heldCount(), 1, "the poll answer is really parked");
   await bell.releaseAll(); // the stale "2 unread" answer lands after the mark-read
@@ -258,13 +261,13 @@ test("guard (fix 3): the live region announces while closed, is cleared on open,
   const a = await signup("sok.dara");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   assert.equal(bell.live(), "", "nothing is announced on the first load");
-  approve(db, a.id, "first");
+  await approve(db, a.id, "first");
   await bell.poll();
   assert.match(bell.live(), /New notification\. 1 unread/);
   await bell.click();
   assert.equal(bell.live(), "");
   await bell.click(); // close
-  approve(db, a.id, "second");
+  await approve(db, a.id, "second");
   await bell.poll();
   assert.match(bell.live(), /New notification\. 1 unread/);
 });
@@ -273,31 +276,31 @@ test("guard (fix 5): exactly 50 unread sends 50 ids, 51 unread sends { all: true
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("chan.sophea");
-  for (let i = 0; i < LIST_LIMIT; i++) approve(db, a.id, `a${i}`);
-  for (let i = 0; i <= LIST_LIMIT; i++) approve(db, b.id, `b${i}`);
+  for (let i = 0; i < LIST_LIMIT; i++) await approve(db, a.id, `a${i}`);
+  for (let i = 0; i <= LIST_LIMIT; i++) await approve(db, b.id, `b${i}`);
 
   const bellA = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   await bellA.click();
   const postA = bellA.sent.find((r) => r.method === "POST");
   assert.equal(postA.body.ids.length, LIST_LIMIT);
-  assert.equal(unreadInDb(a.id), 0);
+  assert.equal(await unreadInDb(a.id), 0);
 
   const bellB = await mountBell(t, { root, cookie: b.cookie, userId: b.id });
   assert.equal(bellB.label(), `Notifications, ${LIST_LIMIT + 1} unread`);
   await bellB.click();
   // round 2 fixer: "all" now carries upTo, the newest id the bell has shown.
-  const newestB = db.prepare("SELECT MAX(id) AS n FROM notifications WHERE user_id = ?").get(b.id).n;
+  const newestB = (await db.prepare("SELECT MAX(id)::int AS n FROM notifications WHERE user_id = ?").get(b.id)).n;
   assert.deepEqual(bellB.sent.find((r) => r.method === "POST").body, { all: true, upTo: newestB });
-  assert.equal(unreadInDb(b.id), 0);
+  assert.equal(await unreadInDb(b.id), 0);
   assert.equal(bellB.label(), "Notifications, 0 unread");
 });
 
 test("guard: a session that ends mid-poll fires auth-expired, and the bell keeps no error state", async (t) => {
   const { db, root, signup } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "before logout elsewhere");
+  await approve(db, a.id, "before logout elsewhere");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
-  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(a.id); // logged out in another tab
+  await db.prepare("DELETE FROM sessions WHERE user_id = ?").run(a.id); // logged out in another tab
   await bell.poll();
   assert.equal(bell.authExpired.length, 1);
   await bell.click(); // the mark-read also gets 401
@@ -309,8 +312,8 @@ test("guard: an unknown future type (LK's 'overdue') renders a neutral chip, and
   const { db, root, signup } = await start(t);
   const a = await signup("sok.dara");
   const long = "x".repeat(300);
-  db.prepare("INSERT INTO notifications (user_id, type, message, reason) VALUES (?, 'overdue', ?, NULL)").run(a.id, long);
-  withTransaction(db, () => notify(db, { userId: a.id, type: "request_rejected", message: "no", reason: "<b>r</b>".repeat(62) }));
+  await db.prepare("INSERT INTO notifications (user_id, type, message, reason) VALUES (?, 'overdue', ?, NULL)").run(a.id, long);
+  await withTransaction(db, (tx) => notify(tx, { userId: a.id, type: "request_rejected", message: "no", reason: "<b>r</b>".repeat(62) }));
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   await bell.click();
   const [rejected, overdue] = bell.items();
@@ -329,12 +332,12 @@ test("DEFECT: a new notice is announced even when another tab read the old one i
   const { db, root, signup, call } = await start(t);
   const a = await signup("sok.dara");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
-  approve(db, a.id, "first");
+  await approve(db, a.id, "first");
   await bell.poll();
   const before = bell.live();
   assert.match(before, /New notification/);
   await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true } }); // the other tab
-  approve(db, a.id, "second");
+  await approve(db, a.id, "second");
   await bell.poll();
   assert.equal(bell.items().length, 0, "panel closed"); // sanity
   assert.notEqual(bell.live(), before, "the live region did not change, so the second notice was never announced");
@@ -346,11 +349,11 @@ test("DEFECT: a new notice is announced even when another tab read the old one i
 test("DEFECT: a notice that arrives just before the panel opens is announced when it shows up", async (t) => {
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "old");
+  await approve(db, a.id, "old");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
-  const fresh = approve(db, a.id, "arrived after the last poll");
+  const fresh = await approve(db, a.id, "arrived after the last poll");
   await bell.click();
-  assert.equal(unreadInDb(a.id), 1, "only the shown notice was marked");
+  assert.equal(await unreadInDb(a.id), 1, "only the shown notice was marked");
   await bell.poll();
   assert.equal(bell.items().length, 2, `notice ${fresh} is in the open panel now`);
   assert.match(bell.live(), /New notification/, "the new notice was never announced");
@@ -361,9 +364,9 @@ test("DEFECT: a notice that arrives just before the panel opens is announced whe
 test("DEFECT: a browser clock that runs behind the server never shows a notice as in the future", async (t) => {
   const { db, root, signup } = await start(t);
   const a = await signup("sok.dara");
-  const id = approve(db, a.id, "just approved");
+  const id = await approve(db, a.id, "just approved");
   const serverNow = new Date(Date.now() + 3 * 60_000).toISOString(); // the browser is 3 minutes slow
-  db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(serverNow, id);
+  await db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(serverNow, id);
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   await bell.click();
   const [shown] = bell.times();
@@ -372,86 +375,84 @@ test("DEFECT: a browser clock that runs behind the server never shows a notice a
 
 // ---------- server edges not covered in round 0 or 1 ----------
 
-test("guard (fix 6): opening a file database that still has the old index drops it and keeps every row", (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "notif-migrate-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, "app.db");
-  const old = openDb(path);
-  old.exec("DROP INDEX notifications_user_id; CREATE INDEX notifications_user_created ON notifications (user_id, created_at)");
-  old.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('a@student.cadt.edu.kh', 'A', 'student', 'x')").run();
-  approve(old, 1, "kept");
-  old.close();
-
-  for (let i = 0; i < 2; i++) openDb(path).close(); // idempotent across restarts
-  const raw = new DatabaseSync(path);
-  const names = raw.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'notifications'").all().map((r) => r.name);
-  assert.deepEqual(names, ["notifications_user_id"]);
-  assert.equal(raw.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 1);
-  const plan = raw.prepare("EXPLAIN QUERY PLAN SELECT id FROM notifications WHERE user_id = 1 ORDER BY id DESC LIMIT 50").all();
-  assert.match(plan.map((p) => p.detail).join(" "), /notifications_user_id/);
-  assert.doesNotMatch(plan.map((p) => p.detail).join(" "), /TEMP B-TREE/, "newest-first needs no sort");
-  raw.close();
-});
-
-test("guard (fix 1): seed:test resolves a relative DB_PATH from .env against the folder it runs in, and an argument wins", (t) => {
+test("guard (fix 1): seed:test resolves a relative database folder against the folder it runs in, and an argument wins", async (t) => {
   const script = fileURLToPath(new URL("./seed-dev.js", import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), "seed-path-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // DB_PATH was the old SQLite setting. The seed no longer reads it, so a stale value must not decide where data goes.
   writeFileSync(join(dir, ".env"), "NODE_ENV=development\nDB_PATH=nested/dev.db\n");
+  // The repo already has a data folder; PGlite does not create a missing parent (reported as a source bug).
+  mkdirSync(join(dir, "data"));
   const env = { ...process.env };
   delete env.NODE_ENV;
   delete env.DB_PATH;
-  const run = (...extra) => spawnSync(process.execPath, ["--env-file-if-exists=.env", script, ...extra], { cwd: dir, env, encoding: "utf8" });
+  delete env.DATABASE_URL;
+  const run = (...extra) =>
+    spawnSync(process.execPath, ["--env-file-if-exists=.env", script, ...extra], { cwd: dir, env, encoding: "utf8", timeout: 90_000 });
+  const noticeCount = async (folder) => {
+    const db = await openDb(join(dir, folder));
+    try {
+      return (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
+    } finally {
+      await db.close();
+    }
+  };
+
+  const first = run();
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(existsSync(join(dir, "data", "pgdata")), true, "no argument: data/pgdata under the working folder");
+  assert.equal(existsSync(join(dir, "nested")), false, "the old DB_PATH value is not used");
+  const second = run("other-pgdata");
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(existsSync(join(dir, "other-pgdata")), true, "a relative argument is resolved against the working folder");
+  assert.equal(await noticeCount(join("data", "pgdata")), 2, "sample notices added once");
   assert.equal(run().status, 0);
-  assert.equal(existsSync(join(dir, "nested", "dev.db")), true);
-  assert.equal(run("other.db").status, 0);
-  assert.equal(existsSync(join(dir, "other.db")), true);
-  const raw = new DatabaseSync(join(dir, "nested", "dev.db"));
-  assert.equal(raw.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 2, "sample notices added once");
-  raw.close();
+  assert.equal(await noticeCount(join("data", "pgdata")), 2, "a second run adds no more notices");
+  assert.equal(await noticeCount("other-pgdata"), 2);
 });
 
 test("guard: two tabs marking at once both succeed, and the first read time is never overwritten", async (t) => {
   const { db, call, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  const ids = Array.from({ length: 30 }, (_, i) => approve(db, a.id, `n${i}`));
+  const ids = [];
+  for (let i = 0; i < 30; i++) ids.push(await approve(db, a.id, `n${i}`));
   const first = await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { ids: [ids[0]] } });
   assert.equal(first.status, 200);
-  const stamp = db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(ids[0]).read_at;
+  const stamp = (await db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(ids[0])).read_at;
   const answers = await Promise.all([
     call("POST", "/api/notifications/read", { cookie: a.cookie, body: { ids } }),
     call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true } }),
     call("GET", "/api/notifications", { cookie: a.cookie }),
   ]);
   assert.deepEqual(answers.map((r) => r.status), [200, 200, 200]);
-  assert.equal(unreadInDb(a.id), 0);
-  assert.equal(db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(ids[0]).read_at, stamp);
+  assert.equal(await unreadInDb(a.id), 0);
+  assert.equal((await db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(ids[0])).read_at, stamp);
 });
 
-test("guard: ids beyond the safe integer range or SQLite's range are a clean no-op, never a 500", async (t) => {
+test("guard: ids beyond the safe integer range or Postgres's integer range are a clean no-op, never a 500", async (t) => {
   const { db, call, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id);
+  await approve(db, a.id);
   for (const ids of [[1e300], [2 ** 63], [Number.MAX_SAFE_INTEGER + 2], Array(LIST_LIMIT).fill(1)]) {
     const res = await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { ids } });
     assert.equal(res.status, 200, String(ids[0]));
   }
-  assert.equal(unreadInDb(a.id), 0, "the repeated id 1 was marked");
+  assert.equal(await unreadInDb(a.id), 0, "the repeated id 1 was marked");
   assert.equal((await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: false } })).status, 400);
   assert.equal((await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { ids: Array(LIST_LIMIT + 1).fill(1) } })).status, 400);
 });
 
 test("guard: a teammate's notify for a user that does not exist throws and leaves the transaction unapplied", async (t) => {
   const { db } = await start(t);
-  const { withTransaction } = await import("./db.js");
-  db.exec("CREATE TABLE requests (id INTEGER PRIMARY KEY, status TEXT)");
-  db.prepare("INSERT INTO requests (id, status) VALUES (7, 'pending')").run();
-  assert.throws(() =>
-    withTransaction(db, () => {
-      db.prepare("UPDATE requests SET status = 'approved' WHERE id = 7").run();
-      notify(db, { userId: 9999, type: "request_approved", message: "ok" }); // passed the wrong id
+  await db.exec("CREATE TABLE requests (id INTEGER PRIMARY KEY, status TEXT)");
+  await db.prepare("INSERT INTO requests (id, status) VALUES (7, 'pending')").run();
+  await assert.rejects(
+    withTransaction(db, async (tx) => {
+      await tx.prepare("UPDATE requests SET status = 'approved' WHERE id = 7").run();
+      await notify(tx, { userId: 9999, type: "request_approved", message: "ok" }); // passed the wrong id
     }),
+    { code: "23503" },
   );
-  assert.equal(db.prepare("SELECT status FROM requests WHERE id = 7").get().status, "pending");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 0);
+  assert.equal((await db.prepare("SELECT status FROM requests WHERE id = 7").get()).status, "pending");
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, 0);
 });

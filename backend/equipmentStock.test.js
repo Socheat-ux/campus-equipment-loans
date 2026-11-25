@@ -8,10 +8,10 @@ import { addDaysISO, todayISO } from "../shared/rules.js";
 const GOOD = "goodpass1";
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => { server.close(); await db.close(); });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, cookie, body) => {
     const res = await fetch(`${root}${path}`, {
@@ -35,7 +35,7 @@ async function start(t) {
     return { id: user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const admin = await signup("chan.nita@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
 
   const addItem = async (quantity) => {
     const res = await call("POST", "/api/equipment", admin.cookie, { name: "Epson projector", category: "Projector", quantity });
@@ -103,12 +103,12 @@ test("a total below the number on loan is refused and changes nothing", async (t
   const id = await addItem(3);
   await lend(id);
   await lend(id);
-  const before = db.prepare("SELECT * FROM equipment WHERE id = ?").get(id);
+  const before = await db.prepare("SELECT * FROM equipment WHERE id = ?").get(id);
 
   const refused = await edit(id, 1);
   assert.equal(refused.status, 400);
   assert.deepEqual(refused.body.fields, { quantity: "Total cannot be lower than the 2 items on loan." });
-  assert.deepEqual(db.prepare("SELECT * FROM equipment WHERE id = ?").get(id), before);
+  assert.deepEqual(await db.prepare("SELECT * FROM equipment WHERE id = ?").get(id), before);
   assert.deepEqual(await stock(id), { quantity: 3, available: 1 });
 });
 
@@ -132,7 +132,7 @@ for (const [action, finish] of [
     const h = await start(t);
     const id = await h.addItem(2);
     const loan = await h.lend(id);
-    h.db.prepare("UPDATE equipment SET available = quantity WHERE id = ?").run(id);
+    await h.db.prepare("UPDATE equipment SET available = quantity WHERE id = ?").run(id);
 
     await finish(h)(loan);
     assert.deepEqual(await h.stock(id), { quantity: 2, available: 2 });

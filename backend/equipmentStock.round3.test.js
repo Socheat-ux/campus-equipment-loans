@@ -1,11 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
 import { build } from "esbuild";
 import { openDb } from "./db.js";
 import { createApp } from "./app.js";
@@ -16,10 +13,10 @@ const GOOD = "goodpass1";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 async function start(t, studentCount) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => { server.close(); await db.close(); });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, cookie, body) => {
     const res = await fetch(`${root}${path}`, {
@@ -39,7 +36,7 @@ async function start(t, studentCount) {
     return { id: (await res.json()).user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const { id: adminId, cookie: admin } = await signup("meas.sophea@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
   const students = [];
   for (let i = 1; i <= studentCount; i += 1) students.push((await signup(`chea.vanna${i}@student.cadt.edu.kh`)).cookie);
 
@@ -56,7 +53,7 @@ async function start(t, studentCount) {
     return res.body.request.id;
   };
   const act = (verb, id, body) => call("POST", `/api/admin/borrow-requests/${id}/${verb}`, admin, body);
-  const row = (id) => ({ ...db.prepare("SELECT quantity, available FROM equipment WHERE id = ?").get(id) });
+  const row = async (id) => ({ ...(await db.prepare("SELECT quantity, available FROM equipment WHERE id = ?").get(id)) });
   return { db, call, admin, item, edit, ask, act, row };
 }
 
@@ -65,19 +62,19 @@ test("an edit heals a shelf that drifted high or low, and the healed shelf then 
   const id = await h.item(3, "Zoom recorder");
   assert.equal((await h.act("approve", await h.ask(0, id))).status, 200);
 
-  h.db.prepare("UPDATE equipment SET available = 3 WHERE id = ?").run(id); // a loan is out, yet the shelf reads full
+  await h.db.prepare("UPDATE equipment SET available = 3 WHERE id = ?").run(id); // a loan is out, yet the shelf reads full
   assert.equal((await h.edit(id, 3, "Zoom H5 recorder")).status, 200);
-  assert.deepEqual(h.row(id), { quantity: 3, available: 2 });
+  assert.deepEqual(await h.row(id), { quantity: 3, available: 2 });
 
-  h.db.prepare("UPDATE equipment SET available = 0 WHERE id = ?").run(id); // the shelf reads empty with 2 on it
+  await h.db.prepare("UPDATE equipment SET available = 0 WHERE id = ?").run(id); // the shelf reads empty with 2 on it
   assert.equal((await h.edit(id, 3, "Zoom H5 recorder")).status, 200);
-  assert.deepEqual(h.row(id), { quantity: 3, available: 2 });
+  assert.deepEqual(await h.row(id), { quantity: 3, available: 2 });
 
   const more = [await h.ask(1, id), await h.ask(2, id), await h.ask(3, id)];
   assert.equal((await h.act("approve", more[0])).status, 200);
   assert.equal((await h.act("approve", more[1])).status, 200);
   assert.equal((await h.act("approve", more[2])).status, 409, "never more loans than the total");
-  assert.deepEqual(h.row(id), { quantity: 3, available: 0 });
+  assert.deepEqual(await h.row(id), { quantity: 3, available: 0 });
 });
 
 test("the on-loan floor counts only this item's approved loans, not pending, returned, cancelled, rejected or other items", async (t) => {
@@ -95,51 +92,14 @@ test("the on-loan floor counts only this item's approved loans, not pending, ret
   assert.equal((await h.act("cancel", called, { reason: "Wrong item" })).status, 200);
   assert.equal((await h.act("reject", await h.ask(5, id), { reason: "Booked" })).status, 200);
   await h.ask(6, id); // pending: reserves nothing
-  assert.deepEqual(h.row(id), { quantity: 5, available: 4 });
+  assert.deepEqual(await h.row(id), { quantity: 5, available: 4 });
 
   assert.equal((await h.edit(id, 1, "Shure mic")).status, 200);
-  assert.deepEqual(h.row(id), { quantity: 1, available: 0 });
+  assert.deepEqual(await h.row(id), { quantity: 1, available: 0 });
   const zero = await h.edit(id, 0, "Shure mic");
   assert.equal(zero.status, 400);
   assert.equal(zero.body.fields.quantity, "Total cannot be lower than the 1 item on loan.");
-  assert.deepEqual(h.row(other), { quantity: 2, available: 0 }, "the other item is untouched");
-});
-
-test("the startup repair fills only NULL shelves, floors at 0, and leaves a non-NULL shelf alone", (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "scrum41-r3-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, "app.db");
-  const first = openDb(path);
-  first.exec(`
-    INSERT INTO users (id, email, full_name, role, password_hash) VALUES (1, 'sok.dara@student.cadt.edu.kh', 'Sok Dara', 'student', 'x');
-    INSERT INTO equipment (id, name, category, quantity) VALUES (1, 'A', 'Audio', 2), (2, 'B', 'Audio', 1), (3, 'C', 'Audio', 4), (4, 'D', 'Audio', 0);
-    INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES
-      (1, 1, '2026-11-01', '2026-11-08', 'approved'), (1, 1, '2026-11-01', '2026-11-08', 'returned'),
-      (1, 1, '2026-11-01', '2026-11-08', 'pending'), (1, 1, '2026-11-01', '2026-11-08', 'cancelled'),
-      (2, 1, '2026-11-01', '2026-11-08', 'approved'), (2, 1, '2026-11-01', '2026-11-08', 'approved'),
-      (2, 1, '2026-11-01', '2026-11-08', 'approved');
-    UPDATE equipment SET available = NULL WHERE id IN (1, 2, 4);
-    UPDATE equipment SET available = 1 WHERE id = 3;
-  `);
-  first.close();
-
-  const expected = [
-    { id: 1, quantity: 2, available: 1 },
-    { id: 2, quantity: 1, available: 0 },
-    { id: 3, quantity: 4, available: 1 },
-    { id: 4, quantity: 0, available: 0 },
-  ];
-  for (let open = 0; open < 2; open += 1) {
-    const db = openDb(path);
-    try {
-      assert.deepEqual(db.prepare("SELECT id, quantity, available FROM equipment ORDER BY id").all().map((r) => ({ ...r })), expected);
-    } finally {
-      db.close();
-    }
-  }
-  const raw = new DatabaseSync(path);
-  assert.equal(raw.prepare("SELECT COUNT(*) AS n FROM equipment WHERE available IS NULL").get().n, 0);
-  raw.close();
+  assert.deepEqual(await h.row(other), { quantity: 2, available: 0 }, "the other item is untouched");
 });
 
 test("the admin request list reports the live shelf and total after approvals, an edit and a return", async (t) => {

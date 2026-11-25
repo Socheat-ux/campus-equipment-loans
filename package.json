@@ -13,7 +13,8 @@
     "build": "vite build",
     "start": "node --env-file-if-exists=.env backend/index.js",
     "test": "node --test backend/*.test.js",
-    "seed:test": "node --env-file-if-exists=.env backend/seed-dev.js"
+    "seed:test": "node --env-file-if-exists=.env backend/seed-dev.js",
+    "copy-db": "node --env-file-if-exists=.env backend/copy-sqlite.js"
   },
   "dependencies": {
     "express": "^5.3.0",

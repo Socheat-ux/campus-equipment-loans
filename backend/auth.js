@@ -34,17 +34,17 @@ const DUMMY_HASH = await hashPassword("not-a-real-password-1");
 
 const readSid = (req) => /(?:^|;\s*)sid=([^;]+)/.exec(req.headers.cookie ?? "")?.[1] ?? null;
 
-function startSession(db, res, userId, maxSessions) {
+async function startSession(db, res, userId, maxSessions) {
   const token = randomBytes(32).toString("base64url");
-  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now());
-  db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)").run(
+  await db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now());
+  await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)").run(
     sha256(token),
     userId,
     Date.now() + SESSION_MS,
   );
-  // Keep only the newest few per user, so a login loop cannot grow the table.
-  db.prepare(
-    "DELETE FROM sessions WHERE user_id = ? AND rowid NOT IN (SELECT rowid FROM sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT ?)",
+  // Keep only the newest few per user, so a login loop cannot grow the table. Every session lasts as long, so the latest expiry is the newest.
+  await db.prepare(
+    "DELETE FROM sessions WHERE user_id = ? AND token_hash NOT IN (SELECT token_hash FROM sessions WHERE user_id = ? ORDER BY expires_at DESC LIMIT ?)",
   ).run(userId, userId, maxSessions);
   res.cookie("sid", token, {
     httpOnly: true,
@@ -55,23 +55,23 @@ function startSession(db, res, userId, maxSessions) {
   });
 }
 
-export function sessionUser(db, req) {
+export async function sessionUser(db, req) {
   const sid = readSid(req);
   if (!sid) return null;
   return (
-    db
+    (await db
       .prepare(
-        `SELECT u.id, u.email, u.full_name AS fullName, u.role
+        `SELECT u.id, u.email, u.full_name AS "fullName", u.role
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = ? AND s.expires_at > ?`,
       )
-      .get(sha256(sid), Date.now()) ?? null
+      .get(sha256(sid), Date.now())) ?? null
   );
 }
 
 // Use on any route that needs a signed-in user: router.get("/x", requireAuth(db), handler).
-export const requireAuth = (db) => (req, res, next) => {
-  req.user = sessionUser(db, req);
+export const requireAuth = (db) => async (req, res, next) => {
+  req.user = await sessionUser(db, req);
   return req.user ? next() : res.status(401).json({ error: "Please log in." });
 };
 
@@ -82,8 +82,8 @@ export function requireRole(db, ...roles) {
     throw new TypeError(`requireRole needs one or more of: ${ROLES.join(", ")}.`);
   }
   const denied = roles.length === 1 && roles[0] === "admin" ? "Administrators only." : "You do not have access to this.";
-  return (req, res, next) => {
-    req.user = sessionUser(db, req);
+  return async (req, res, next) => {
+    req.user = await sessionUser(db, req);
     if (!req.user) return res.status(401).json({ error: "Please log in." });
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: denied });
     next();
@@ -212,20 +212,18 @@ export function authRouter(
     if (!hash) return settle(false); // client hung up while queued, nobody to answer
     let id;
     try {
-      id = Number(
-        db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, ?)").run(email, fullName, role, hash)
-          .lastInsertRowid,
-      );
+      id = (await db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, ?) RETURNING id").run(email, fullName, role, hash))
+        .lastInsertRowid;
     } catch (err) {
       settle(false);
       // The UNIQUE constraint is the real duplicate check: two simultaneous signups both get past any earlier SELECT.
-      if (err.errcode === 2067 || /UNIQUE/.test(err.message)) {
+      if (err.code === "23505") {
         return res.status(409).json({ error: "An account with this email already exists. Log in instead." });
       }
       throw err;
     }
     settle(true);
-    startSession(db, res, id, maxSessionsPerUser);
+    await startSession(db, res, id, maxSessionsPerUser);
     res.status(201).json({ user: { id, email, fullName, role } });
   }));
 
@@ -236,24 +234,24 @@ export function authRouter(
     const { email, password } = input;
     const settle = limit(req, "login", email);
     if (!settle) return tooManyReply(res);
-    const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    const row = await db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     const ok = await gated(req, () => checkPassword(password, row?.password_hash ?? DUMMY_HASH));
     if (ok === undefined) return settle(false); // client hung up while queued, nobody to answer
     settle(Boolean(row && ok));
     if (!row || !ok) return res.status(401).json({ error: "Wrong email or password." });
-    startSession(db, res, row.id, maxSessionsPerUser);
+    await startSession(db, res, row.id, maxSessionsPerUser);
     res.json({ user: { id: row.id, email: row.email, fullName: row.full_name, role: row.role } });
   }));
 
-  router.post("/logout", (req, res) => {
+  router.post("/logout", async (req, res) => {
     const sid = readSid(req);
-    if (sid) db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(sid));
+    if (sid) await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(sid));
     res.clearCookie("sid", { path: "/" });
     res.status(204).end();
   });
 
-  router.get("/me", (req, res) => {
-    const user = sessionUser(db, req);
+  router.get("/me", async (req, res) => {
+    const user = await sessionUser(db, req);
     return user ? res.json({ user }) : res.status(401).json({ error: "Not logged in." });
   });
 

@@ -7,10 +7,13 @@ import { createApp } from "./app.js";
 import { notify } from "./notifications.js";
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const post = (cookie, body) =>
     fetch(`${root}/api/notifications/read`, { method: "POST", headers: { "Content-Type": "application/json", cookie }, body: JSON.stringify(body) });
@@ -25,16 +28,20 @@ async function start(t) {
 
 test("notify outside withTransaction throws a TypeError that names withTransaction, and writes nothing", async (t) => {
   const { db, id } = await start(t);
-  assert.throws(() => notify(db, { userId: id, type: "request_approved", message: "x" }), { name: "TypeError", message: /withTransaction/ });
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 0);
-  withTransaction(db, () => notify(db, { userId: id, type: "request_approved", message: "x" }));
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 1);
+  await assert.rejects(notify(db, { userId: id, type: "request_approved", message: "x" }), { name: "TypeError", message: /withTransaction/ });
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, 0);
+  await withTransaction(db, (tx) => notify(tx, { userId: id, type: "request_approved", message: "x" }));
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, 1);
 });
 
 test('{ all: true, upTo } marks only ids up to upTo; bad upTo and stray keys are 400 and change nothing', async (t) => {
   const { db, post, id, cookie } = await start(t);
-  const ids = withTransaction(db, () => [1, 2, 3, 4].map((n) => notify(db, { userId: id, type: "request_approved", message: `n${n}` })));
-  const unread = () => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE read_at IS NULL").get().n;
+  const ids = await withTransaction(db, async (tx) => {
+    const made = [];
+    for (const n of [1, 2, 3, 4]) made.push(await notify(tx, { userId: id, type: "request_approved", message: `n${n}` }));
+    return made;
+  });
+  const unread = async () => (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE read_at IS NULL").get()).n;
 
   for (const body of [
     { all: true, upTo: 0 }, { all: true, upTo: -1 }, { all: true, upTo: 1.5 }, { all: true, upTo: "3" },
@@ -42,17 +49,17 @@ test('{ all: true, upTo } marks only ids up to upTo; bad upTo and stray keys are
   ]) {
     assert.equal((await post(cookie, body)).status, 400, JSON.stringify(body));
   }
-  assert.equal(unread(), 4);
+  assert.equal(await unread(), 4);
 
   const res = await post(cookie, { all: true, upTo: ids[1] });
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { unread: 2 }); // ids 3 and 4 arrived "after the last poll" and stay unread
   assert.equal((await post(cookie, { all: true, upTo: 2 ** 63 })).status, 200); // huge but valid: marks the rest, no 500
-  assert.equal(unread(), 0);
+  assert.equal(await unread(), 0);
 });
 
 test('{ "all": true } alone still marks everything', async (t) => {
   const { db, post, id, cookie } = await start(t);
-  withTransaction(db, () => notify(db, { userId: id, type: "request_approved", message: "x" }));
+  await withTransaction(db, (tx) => notify(tx, { userId: id, type: "request_approved", message: "x" }));
   assert.deepEqual(await (await post(cookie, { all: true })).json(), { unread: 0 });
 });

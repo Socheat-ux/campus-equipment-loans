@@ -9,10 +9,13 @@ const WRONG = "wrongpass1";
 const student = (name) => `${name}@student.cadt.edu.kh`;
 
 async function start(t, options) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db, options).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const post = (path, body, signal) =>
     fetch(`${root}/api/auth${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
@@ -51,8 +54,9 @@ test("cancelled queued guesses do not delay a real login", async (t) => {
   assert.ok(after < Math.max(3 * single, 4000), `login took ${Math.round(after)} ms after cancelled guesses, one login alone takes ${Math.round(single)} ms`);
 });
 
-test("bad options are rejected when the app is created", () => {
-  const db = openDb(":memory:");
+test("bad options are rejected when the app is created", async (t) => {
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   for (const bad of [{ maxSessionsPerUser: 0 }, { maxSessionsPerUser: NaN }, { scryptConcurrency: 0 }, { ipFailures: -1 }]) {
     assert.throws(() => createApp(db, bad), TypeError, JSON.stringify(bad));
   }
@@ -63,7 +67,7 @@ test("bad options are rejected when the app is created", () => {
 test("a hash job that throws gives its gate slot back", async (t) => {
   const { db, post, postWithin } = await start(t, { scryptConcurrency: 1 });
   for (const n of ["sok.dara", "keo.bopha"]) assert.equal((await post("/signup", { email: student(n), password: GOOD })).status, 201);
-  db.prepare("UPDATE users SET password_hash='scrypt$x$y$z$$' WHERE email=?").run(student("keo.bopha"));
+  await db.prepare("UPDATE users SET password_hash='scrypt$x$y$z$$' WHERE email=?").run(student("keo.bopha"));
   for (let i = 0; i < 3; i++) {
     const res = await post("/login", { email: student("keo.bopha"), password: GOOD });
     assert.equal(res.status, 500);
@@ -91,7 +95,7 @@ test("many logins at once for one user respect the session cap", async (t) => {
   assert.equal((await post("/signup", login)).status, 201);
   const results = await Promise.all(Array.from({ length: 6 }, () => post("/login", login)));
   for (const r of results) assert.equal(r.status, 200);
-  assert.equal(db.prepare("SELECT count(*) AS n FROM sessions").get().n, 2);
+  assert.equal((await db.prepare("SELECT count(*)::int AS n FROM sessions").get()).n, 2);
   const me = await Promise.all(results.map((r) => get("/me", r.headers.get("set-cookie").split(";")[0]).then((m) => m.status)));
   assert.equal(me.filter((s) => s === 200).length, 2);
   assert.equal(me.filter((s) => s === 401).length, 4);

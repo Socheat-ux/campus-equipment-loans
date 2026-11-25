@@ -16,10 +16,13 @@ function useZone(t, zone) {
 }
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const signup = await fetch(`${root}/api/auth/signup`, {
     method: "POST",
@@ -27,12 +30,18 @@ async function start(t) {
     body: JSON.stringify({ email: "kem.vuthy@cadt.edu.kh", password: "goodpass1" }),
   });
   assert.equal(signup.status, 201);
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
   const cookie = signup.headers.get("set-cookie").split(";")[0];
-  const who = Number(db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('pich.sreyleak@student.cadt.edu.kh', 'Pich Sreyleak', 'student', 'x')").run().lastInsertRowid);
-  const item = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Tripod', 'Lab', 5)").run().lastInsertRowid);
-  const addReturned = (returnedAt) =>
-    Number(db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at) VALUES (?, ?, '2026-11-01', '2026-11-08', 'returned', ?)").run(item, who, returnedAt).lastInsertRowid);
+  const who = Number((await db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('pich.sreyleak@student.cadt.edu.kh', 'Pich Sreyleak', 'student', 'x') RETURNING id").run()).lastInsertRowid);
+  const item = Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Tripod', 'Lab', 5) RETURNING id").run()).lastInsertRowid);
+  const addReturned = async (returnedAt) =>
+    Number(
+      (
+        await db
+          .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at) VALUES (?, ?, '2026-11-01', '2026-11-08', 'returned', ?) RETURNING id")
+          .run(item, who, returnedAt)
+      ).lastInsertRowid,
+    );
   const exportCsv = async () => {
     const res = await fetch(`${root}${BASE}/export.csv?status=returned`, { headers: { cookie } });
     const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(await res.arrayBuffer());
@@ -59,8 +68,8 @@ test("R3 the next test is back in the zone the process started in", () => {
 test("R3 returned date and file name are Phnom Penh time when the server runs in Kiritimati", async (t) => {
   useZone(t, "Pacific/Kiritimati");
   const { addReturned, exportCsv } = await start(t);
-  const before = addReturned("2026-11-22T16:59:59Z");
-  const after = addReturned("2026-11-22T17:00:00Z");
+  const before = await addReturned("2026-11-22T16:59:59Z");
+  const after = await addReturned("2026-11-22T17:00:00Z");
   assert.deepEqual(returnedCells((await exportCsv()).lines), { [before]: "2026-11-22 23:59", [after]: "2026-11-23 00:00" });
   t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-22T16:59:59Z") });
   assert.equal((await exportCsv()).name, 'attachment; filename="borrowing-report-2026-11-22.csv"');
@@ -71,8 +80,8 @@ test("R3 returned date and file name are Phnom Penh time when the server runs in
 // R3-3: a session made on the real clock must survive a mocked clock, and the real clock coming back.
 test("R3 the admin session survives a mocked clock and then the real clock", async (t) => {
   const { addReturned, exportCsv } = await start(t);
-  addReturned("2026-11-02T03:00:00Z");
-  addReturned("2026-11-03T04:30:00Z");
+  await addReturned("2026-11-02T03:00:00Z");
+  await addReturned("2026-11-03T04:30:00Z");
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() + 24 * 60 * 60 * 1000 });
   const mocked = await exportCsv();
   t.mock.timers.reset();

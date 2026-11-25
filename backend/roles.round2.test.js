@@ -54,6 +54,18 @@ async function load(file, fakes = {}) {
 globalThis.window = new EventTarget();
 const events = [];
 for (const name of ["auth-expired", "auth-changed"]) window.addEventListener(name, () => events.push(name));
+// PGlite takes a global "window" for a browser and breaks, so the fake window is hidden while a database opens.
+async function openClean() {
+  const { window: fakeWindow, document: fakeDocument } = globalThis;
+  delete globalThis.window;
+  delete globalThis.document;
+  try {
+    return await openDb(":memory:");
+  } finally {
+    globalThis.window = fakeWindow;
+    if (fakeDocument) globalThis.document = fakeDocument;
+  }
+}
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const deferred = () => {
   let resolve, reject;
@@ -193,7 +205,7 @@ test("safeReturnPath keeps odd but harmless in-app paths, including huge ones, a
 
 // ---------- route shapes the count check still misses ----------
 
-test("DEFECT (low): the route-count check misses an /api endpoint written as plain middleware or as a mounted sub-app", async () => {
+test("DEFECT (low): the route-count check misses an /api endpoint written as plain middleware or as a mounted sub-app", async (t) => {
   const src = readFileSync(join(ROOT, "backend/roles.test.js"), "utf8");
   const fn = /function countRouterRoutes[\s\S]*?\r?\n}\r?\n/.exec(src)?.[0];
   assert.ok(fn, "countRouterRoutes moved: import it here instead");
@@ -210,7 +222,9 @@ test("DEFECT (low): the route-count check misses an /api endpoint written as pla
   };
   const missed = [];
   for (const [name, add] of Object.entries(shapes)) {
-    const app = createApp(openDb(":memory:"));
+    const db = await openClean();
+    t.after(() => db.close());
+    const app = createApp(db);
     const before = countRouterRoutes(app.router.stack);
     add(app);
     if (countRouterRoutes(app.router.stack) === before) missed.push(name);
@@ -221,7 +235,8 @@ test("DEFECT (low): the route-count check misses an /api endpoint written as pla
 // ---------- expired and deleted admin sessions are signed-out, not forbidden ----------
 
 test("an expired or deleted administrator session gets 401 (sign in again), never 403 or 500", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openClean();
+  t.after(() => db.close());
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(() => server.close());
@@ -232,17 +247,17 @@ test("an expired or deleted administrator session gets 401 (sign in again), neve
   const item = { name: "Tripod", category: "Camera", quantity: 2 };
 
   const expiring = await signup("chan.nita@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
+  await db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
   assert.equal((await post("/api/equipment", item, expiring)).status, 201, "admin works first");
-  db.prepare("UPDATE sessions SET expires_at = ?").run(Date.now() - 1);
+  await db.prepare("UPDATE sessions SET expires_at = ?").run(Date.now() - 1);
   const expired = await post("/api/equipment", item, expiring);
   assert.equal(expired.status, 401);
   assert.deepEqual(await expired.json(), { error: "Please log in." });
 
   const deleted = await signup("keo.bopha@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'keo.bopha@cadt.edu.kh'").run();
-  db.prepare("DELETE FROM users WHERE email = 'keo.bopha@cadt.edu.kh'").run();
+  await db.prepare("UPDATE users SET role = 'admin' WHERE email = 'keo.bopha@cadt.edu.kh'").run();
+  await db.prepare("DELETE FROM users WHERE email = 'keo.bopha@cadt.edu.kh'").run();
   assert.equal((await post("/api/equipment", item, deleted)).status, 401, "a deleted account is signed out");
   assert.equal((await post("/api/equipment", item, "sid=" + "x".repeat(4000))).status, 401, "a junk cookie is signed out");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM equipment").get().n, 1, "only the first write landed");
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM equipment").get()).n, 1, "only the first write landed");
 });

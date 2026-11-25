@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "./auth.js";
-import { withTransaction } from "./db.js";
+import { isId, withTransaction } from "./db.js";
 import { addDaysISO, REJECTION_REASON_MAX, todayISO } from "../shared/rules.js";
 
 // Add new kinds here, for example "due_soon" and "overdue" for the reminder stories.
@@ -8,6 +8,7 @@ export const NOTIFICATION_TYPES = ["request_submitted", "request_approved", "req
 export const MESSAGE_MAX = 300;
 export const REASON_MAX = REJECTION_REASON_MAX;
 export const LIST_LIMIT = 50;
+const PG_INT_MAX = 2147483647;
 const TITLES = {
   request_submitted: "Request submitted",
   request_approved: "Request approved",
@@ -19,7 +20,7 @@ const TITLES = {
 
 // Server code calls this, inside withTransaction(db, ...) together with the change it reports.
 // Only server code calls it, so bad input is a bug and throws instead of answering 400.
-export function notify(db, { userId, type, message, reason, requestId, createdAt } = {}) {
+export async function notify(db, { userId, type, message, reason, requestId, createdAt } = {}) {
   // isTransaction is undefined on drivers without it; then there is nothing to check.
   if (db.isTransaction === false) throw new TypeError("notify: call it inside withTransaction(db, ...) with the change it reports.");
   if (!Number.isInteger(userId) || userId < 1) throw new TypeError("notify: userId must be a positive integer.");
@@ -39,26 +40,28 @@ export function notify(db, { userId, type, message, reason, requestId, createdAt
     if (!why || why.length > REASON_MAX) throw new TypeError(`notify: a rejection needs a reason of 1 to ${REASON_MAX} characters.`);
   }
 
-  const info = db
+  // Returns the new id, or undefined when the unique index says this notice already exists.
+  const info = await db
     .prepare(
       `INSERT INTO notifications (user_id, type, title, message, reason, request_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`,
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+       ON CONFLICT DO NOTHING RETURNING id`,
     )
     .run(userId, type, TITLES[type], text, why, requestId ?? null, createdAt ?? null);
-  return Number(info.lastInsertRowid);
+  return info.lastInsertRowid;
 }
 
-export function notifyAdmins(db, { type, message, reason, requestId, createdAt } = {}) {
-  const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id").all();
-  for (const admin of admins) notify(db, { userId: admin.id, type, message, reason, requestId, createdAt });
+export async function notifyAdmins(db, { type, message, reason, requestId, createdAt } = {}) {
+  const admins = await db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id").all();
+  for (const admin of admins) await notify(db, { userId: admin.id, type, message, reason, requestId, createdAt });
   return admins.length;
 }
 
-// Called while loading the user's bell. The unique per-user/request check makes polling safe to repeat.
-export function processDueReminders(db, today = todayISO()) {
+// Called while loading the user's bell. The unique index on (user, request, type) makes polling safe to repeat.
+export async function processDueReminders(db, today = todayISO()) {
   const dueDate = addDaysISO(today, 1);
   if (!dueDate) return 0;
-  const loans = db.prepare(`
+  const loans = await db.prepare(`
     SELECT r.id, r.user_id, e.name AS equipment_name, r.return_date
     FROM borrow_requests r JOIN equipment e ON e.id = r.equipment_id
     WHERE r.status = 'approved' AND r.return_date = ?
@@ -68,34 +71,33 @@ export function processDueReminders(db, today = todayISO()) {
     ORDER BY r.id
   `).all(dueDate);
   if (!loans.length) return 0;
-  return withTransaction(db, () => {
+  return withTransaction(db, async (tx) => {
     let added = 0;
     for (const loan of loans) {
-      const exists = db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND request_id = ? AND type = 'due_soon'").get(loan.user_id, loan.id);
-      if (exists) continue;
-      notify(db, {
+      const id = await notify(tx, {
         userId: loan.user_id,
         type: "due_soon",
         message: `Return ${loan.equipment_name} by ${loan.return_date}.`,
         requestId: loan.id,
       });
-      added++;
+      if (id !== undefined) added++;
     }
     return added;
   });
 }
 
 // Requests submitted before an admin existed (or before admin notices were added) still need to show in the bell.
-export function backfillAdminRequestNotifications(db, adminId) {
+export async function backfillAdminRequestNotifications(db, adminId) {
   if (!Number.isInteger(adminId) || adminId < 1) throw new TypeError("backfill: adminId must be a positive integer.");
-  return withTransaction(db, () => {
+  return withTransaction(db, async (tx) => {
     const legacyMessages = new Set(
-      db
-        .prepare("SELECT message FROM notifications WHERE user_id = ? AND type = 'request_submitted' AND request_id IS NULL")
-        .all(adminId)
-        .map((row) => row.message),
+      (
+        await tx
+          .prepare("SELECT message FROM notifications WHERE user_id = ? AND type = 'request_submitted' AND request_id IS NULL")
+          .all(adminId)
+      ).map((row) => row.message),
     );
-    const rows = db
+    const rows = await tx
       .prepare(
         `SELECT r.id, r.created_at, e.name AS equipment_name, u.full_name, u.email
          FROM borrow_requests r
@@ -111,14 +113,14 @@ export function backfillAdminRequestNotifications(db, adminId) {
     for (const row of rows) {
       const message = `New borrow request from ${row.full_name || row.email} for ${row.equipment_name}.`.slice(0, MESSAGE_MAX);
       if (legacyMessages.has(message)) continue;
-      notify(db, {
+      const id = await notify(tx, {
         userId: adminId,
         type: "request_submitted",
         message,
         requestId: row.id,
         createdAt: row.created_at,
       });
-      added++;
+      if (id !== undefined) added++;
     }
     return added;
   });
@@ -143,24 +145,24 @@ export function notificationsRouter(db) {
   // Every route below is about the signed-in user's own notifications.
   router.use(requireAuth(db));
 
-  const unreadCount = (userId) =>
-    db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
+  const unreadCount = async (userId) =>
+    (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId)).n;
 
-  router.get("/", (req, res) => {
-    processDueReminders(db);
-    if (req.user.role === "admin") backfillAdminRequestNotifications(db, req.user.id);
-    const rows = db
+  router.get("/", async (req, res) => {
+    await processDueReminders(db);
+    if (req.user.role === "admin") await backfillAdminRequestNotifications(db, req.user.id);
+    const rows = await db
       .prepare(
         `SELECT id, type, message, reason, read_at, created_at FROM notifications
          WHERE user_id = ? ORDER BY id DESC LIMIT ?`,
       )
       .all(req.user.id, LIST_LIMIT);
-    res.json({ notifications: rows.map(asNotification), unread: unreadCount(req.user.id) });
+    res.json({ notifications: rows.map(asNotification), unread: await unreadCount(req.user.id) });
   });
 
   // Body { "all": true } marks all of the caller's notifications read, { "all": true, "upTo": id } only those with
   // id <= upTo, and { "ids": [...] } only the listed ones. Anything else is a 400, so a typo can never mean "mark everything".
-  router.post("/read", (req, res) => {
+  router.post("/read", async (req, res) => {
     // Without a JSON body there is nothing to check, and an empty body would mean "mark all".
     if (!req.is("application/json")) return res.status(415).json({ error: "JSON only." });
     if (typeof req.body !== "object" || req.body === null || Array.isArray(req.body)) {
@@ -183,39 +185,45 @@ export function notificationsRouter(db) {
     }
 
     const now = new Date().toISOString();
+    // Ids are integers in Postgres: anything above its range cannot exist, so it is left out instead of failing the query.
+    const known = ids?.filter((id) => id <= PG_INT_MAX);
     if (ids) {
-      db.prepare(
-        `UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => "?").join(", ")})`,
-      ).run(now, req.user.id, ...ids);
+      if (known.length) {
+        await db.prepare(
+          `UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id IN (${known.map(() => "?").join(", ")})`,
+        ).run(now, req.user.id, ...known);
+      }
+    } else if (upTo === undefined) {
+      await db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL").run(now, req.user.id);
     } else {
-      db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id <= ?").run(
+      await db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id <= ?").run(
         now,
         req.user.id,
-        upTo ?? Number.MAX_SAFE_INTEGER,
+        Math.min(upTo, PG_INT_MAX),
       );
     }
-    res.json({ unread: unreadCount(req.user.id) });
+    res.json({ unread: await unreadCount(req.user.id) });
   });
 
-  router.post("/read-all", (req, res) => {
-    db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL").run(
+  router.post("/read-all", async (req, res) => {
+    await db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL").run(
       new Date().toISOString(),
       req.user.id,
     );
-    res.json({ unread: unreadCount(req.user.id) });
+    res.json({ unread: await unreadCount(req.user.id) });
   });
 
-  router.post("/:id/read", (req, res) => {
+  router.post("/:id/read", async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isSafeInteger(id) || id < 1) return res.status(404).json({ error: "Notification not found." });
-    const result = db
+    if (!isId(id)) return res.status(404).json({ error: "Notification not found." });
+    const result = await db
       .prepare("UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL")
       .run(new Date().toISOString(), id, req.user.id);
     if (!result.changes) {
-      const own = db.prepare("SELECT 1 FROM notifications WHERE id = ? AND user_id = ?").get(id, req.user.id);
+      const own = await db.prepare("SELECT 1 FROM notifications WHERE id = ? AND user_id = ?").get(id, req.user.id);
       if (!own) return res.status(404).json({ error: "Notification not found." });
     }
-    res.json({ unread: unreadCount(req.user.id) });
+    res.json({ unread: await unreadCount(req.user.id) });
   });
 
   return router;

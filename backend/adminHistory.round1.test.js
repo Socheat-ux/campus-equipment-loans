@@ -10,10 +10,13 @@ const BASE = "/api/admin/borrow-requests";
 
 // Each test gets its own database, an admin cookie and small insert helpers.
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
 
   const signup = await fetch(`${root}/api/auth/signup`, {
@@ -22,19 +25,22 @@ async function start(t) {
     body: JSON.stringify({ email: "ly.sophea@cadt.edu.kh", password: "goodpass1" }),
   });
   assert.equal(signup.status, 201);
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run((await signup.json()).user.id);
   const cookie = signup.headers.get("set-cookie").split(";")[0];
 
-  const addUser = (email, name, role = "student") =>
-    Number(db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, 'x')").run(email, name, role).lastInsertRowid);
-  const addItem = (name) =>
-    Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Lab', 5)").run(name).lastInsertRowid);
+  const addUser = async (email, name, role = "student") =>
+    Number(
+      (await db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, 'x') RETURNING id").run(email, name, role))
+        .lastInsertRowid,
+    );
+  const addItem = async (name) =>
+    Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Lab', 5) RETURNING id").run(name)).lastInsertRowid);
   const insertLoan = db.prepare(
     `INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at)
-     VALUES (?, ?, ?, date(?, '+7 days'), ?, ?)`,
+     VALUES (?, ?, ?, (?::date + 7)::text, ?, ?) RETURNING id`,
   );
-  const addLoan = (itemId, userId, date, status, returnedAt = status === "returned" ? `${date}T09:30:00.000Z` : null) =>
-    Number(insertLoan.run(itemId, userId, date, date, status, returnedAt).lastInsertRowid);
+  const addLoan = async (itemId, userId, date, status, returnedAt = status === "returned" ? `${date}T09:30:00.000Z` : null) =>
+    Number((await insertLoan.run(itemId, userId, date, date, status, returnedAt)).lastInsertRowid);
 
   const get = (path) => fetch(`${root}${path}`, { headers: { cookie } });
   const list = async (query) => {
@@ -83,10 +89,10 @@ function parseCsv(text) {
 
 test("the CSV follows the status filter exactly like the list", async (t) => {
   const { addUser, addItem, addLoan, listedIds, exportedRows } = await start(t);
-  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
-  const item = addItem("Canon camera");
-  STATUSES.forEach((status, i) => addLoan(item, who, `2026-10-0${i + 1}`, status));
-  addLoan(item, who, "2026-10-09", "returned");
+  const who = await addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
+  const item = await addItem("Canon camera");
+  for (const [i, status] of STATUSES.entries()) await addLoan(item, who, `2026-10-0${i + 1}`, status);
+  await addLoan(item, who, "2026-10-09", "returned");
 
   for (const query of ["status=returned", "", "status=approved", "status=cancelled&from=2026-10-05"]) {
     const body = (await exportedRows(query)).slice(1);
@@ -101,8 +107,9 @@ test("the CSV follows the status filter exactly like the list", async (t) => {
 
 test("an exclamation mark in a search is literal, even next to a percent sign", async (t) => {
   const { addUser, addItem, addLoan, listedIds, exportedRows } = await start(t);
-  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
-  const ids = ["wid!get", "a!%b", "widget"].map((name) => addLoan(addItem(name), who, "2026-10-01", "pending"));
+  const who = await addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
+  const ids = [];
+  for (const name of ["wid!get", "a!%b", "widget"]) ids.push(await addLoan(await addItem(name), who, "2026-10-01", "pending"));
 
   assert.deepEqual(await listedIds("item=!"), [ids[1], ids[0]]);
   assert.deepEqual(await listedIds("item=d!g"), [ids[0]]);
@@ -112,21 +119,22 @@ test("an exclamation mark in a search is literal, even next to a percent sign", 
 
 test("the borrower search trims tabs and spaces, ignores case and matches only that person", async (t) => {
   const { addUser, addItem, addLoan, listedIds } = await start(t);
-  const item = addItem("Epson projector");
-  const dara = addUser("sok.dara@student.cadt.edu.kh", "Sok Dara");
-  const sokha = addUser("sokha.dara@student.cadt.edu.kh", "Sokha Dara");
-  const chan = addUser("chan.sok@cadt.edu.kh", "Chan Sok", "faculty");
-  const first = addLoan(item, dara, "2026-10-01", "pending");
-  addLoan(item, sokha, "2026-10-02", "pending");
-  addLoan(item, chan, "2026-10-03", "pending");
-  const second = addLoan(item, dara, "2026-10-04", "pending");
+  const item = await addItem("Epson projector");
+  const otherItem = await addItem("Canon camera"); // one pending request per person and item, so Sok Dara's second one is for another item
+  const dara = await addUser("sok.dara@student.cadt.edu.kh", "Sok Dara");
+  const sokha = await addUser("sokha.dara@student.cadt.edu.kh", "Sokha Dara");
+  const chan = await addUser("chan.sok@cadt.edu.kh", "Chan Sok", "faculty");
+  const first = await addLoan(item, dara, "2026-10-01", "pending");
+  await addLoan(item, sokha, "2026-10-02", "pending");
+  await addLoan(item, chan, "2026-10-03", "pending");
+  const second = await addLoan(otherItem, dara, "2026-10-04", "pending");
 
   assert.deepEqual(await listedIds("borrower=%09%20SOK.DARA%40%20"), [second, first]);
 });
 
 test("control characters in a search are refused for the list and the CSV", async (t) => {
   const { addUser, addItem, addLoan, list, exportCsv } = await start(t);
-  addLoan(addItem("Epson projector"), addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy"), "2026-10-01", "pending");
+  await addLoan(await addItem("Epson projector"), await addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy"), "2026-10-01", "pending");
 
   const error = { error: "Searches cannot contain control characters." };
   for (const query of ["item=%00", "borrower=%00x", "item=a%7Fb", "item=a%1Fb", "borrower=a%0Ab"]) {
@@ -141,11 +149,11 @@ test("control characters in a search are refused for the list and the CSV", asyn
 
 test("the CSV shows the returned time in Phnom Penh while the list keeps the ISO string", async (t) => {
   const { addUser, addItem, addLoan, list, exportedRows, exportCsv } = await start(t);
-  const who = addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
-  const item = addItem("Canon camera");
-  const late = addLoan(item, who, "2026-10-25", "returned", "2026-11-01T20:00:00.000Z");
-  const early = addLoan(item, who, "2026-10-26", "returned", "2026-10-31T16:59:00.000Z");
-  const open = addLoan(item, who, "2026-10-27", "approved");
+  const who = await addUser("meas.rithy@student.cadt.edu.kh", "Meas Rithy");
+  const item = await addItem("Canon camera");
+  const late = await addLoan(item, who, "2026-10-25", "returned", "2026-11-01T20:00:00.000Z");
+  const early = await addLoan(item, who, "2026-10-26", "returned", "2026-10-31T16:59:00.000Z");
+  const open = await addLoan(item, who, "2026-10-27", "approved");
 
   const rows = await exportedRows("status=all");
   assert.equal(rows[0][7], "Returned date");
@@ -167,22 +175,30 @@ test("the CSV shows the returned time in Phnom Penh while the list keeps the ISO
 });
 
 test("a 3000-row export is complete, in order, spreadsheet-safe and fast", async (t) => {
-  const { db, addUser, addItem, addLoan, listedIds, exportCsv } = await start(t);
-  const people = [
+  const { addUser, addItem, addLoan, listedIds, exportCsv } = await start(t);
+  const people = [];
+  for (const [email, name] of [
     ["sok.dara@student.cadt.edu.kh", "Sok, Dara"],
     ["chan.nita@student.cadt.edu.kh", 'Chan "Nita" Keo'],
     ["keo.bopha@student.cadt.edu.kh", "Keo\nBopha"],
     ["meas.rithy@student.cadt.edu.kh", '=Meas, "Rithy"\r\nX'],
     ["chhim.vanna@student.cadt.edu.kh", "+Chhim Vanna"],
-  ].map(([email, name]) => addUser(email, name));
-  const items = ["Dell laptop", "=cmd item", "Epson projector"].map(addItem);
-  // One transaction keeps the seeding fast.
-  db.exec("BEGIN");
+  ])
+    people.push(await addUser(email, name));
+  const items = [];
+  for (const name of ["Dell laptop", "=cmd item", "Epson projector"]) items.push(await addItem(name));
+  // The database allows one pending request per person and item, so a repeat of a pending pair is stored as approved.
+  const pendingPairs = new Set();
   for (let i = 0; i < 3000; i += 1) {
     const day = String((i % 28) + 1).padStart(2, "0");
-    addLoan(items[i % 3], people[i % 5], `2026-10-${day}`, STATUSES[i % 5]);
+    let status = STATUSES[i % 5];
+    if (status === "pending") {
+      const pair = `${i % 3}:${i % 5}`;
+      if (pendingPairs.has(pair)) status = "approved";
+      pendingPairs.add(pair);
+    }
+    await addLoan(items[i % 3], people[i % 5], `2026-10-${day}`, status);
   }
-  db.exec("COMMIT");
 
   const started = performance.now();
   const { res, text } = await exportCsv("status=all");

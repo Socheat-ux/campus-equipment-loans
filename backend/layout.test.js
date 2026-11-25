@@ -38,9 +38,13 @@ const raw = (port, path) =>
   });
 
 test("the static route does not serve files from shared/ or frontend/src/", { skip: !existsSync(new URL("dist", root)) }, async (t) => {
-  const server = createApp(openDb(":memory:")).listen(0, "127.0.0.1");
+  const db = await openDb(":memory:");
+  const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const { port } = server.address();
   const paths = [
     "/%2e%2e/shared/rules.js",

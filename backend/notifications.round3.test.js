@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { openDb, withTransaction } from "./db.js";
@@ -16,10 +15,13 @@ const realFetch = globalThis.fetch; // the UI harness swaps fetch, so the test c
 const realGlobals = { setInterval, clearInterval, fetch: realFetch, document: globalThis.document, window: globalThis.window };
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, { body, cookie } = {}) =>
     realFetch(`${root}${path}`, {
@@ -33,14 +35,15 @@ async function start(t) {
     const { user } = await res.json();
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
   };
-  const unreadInDb = (userId) => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
+  const unreadInDb = async (userId) =>
+    (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId)).n;
   return { db, root, call, signup, unreadInDb };
 }
 
 // notify needs a transaction; callers inside withTransaction already have one.
 const approve = (db, userId, message = "ok") => {
-  const run = () => notify(db, { userId, type: "request_approved", message });
-  return db.isTransaction ? run() : withTransaction(db, run);
+  const run = (conn) => notify(conn, { userId, type: "request_approved", message });
+  return db.isTransaction ? run(db) : withTransaction(db, run);
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -235,7 +238,7 @@ test("guard: with nothing loaded (offline first load, or zero notices) opening n
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("chan.sophea");
-  approve(db, a.id, "waiting");
+  await approve(db, a.id, "waiting");
   let down = true;
   const bellA = await mountBell(t, { root, cookie: a.cookie, userId: a.id, offline: (m) => down && m === "GET" });
   await bellA.click();
@@ -244,8 +247,8 @@ test("guard: with nothing loaded (offline first load, or zero notices) opening n
   down = false;
   await bellA.poll();
   await bellA.click();
-  assert.deepEqual(bellA.sent.find((r) => r.method === "POST").body, { ids: [db.prepare("SELECT MAX(id) AS n FROM notifications").get().n] });
-  assert.equal(unreadInDb(a.id), 0);
+  assert.deepEqual(bellA.sent.find((r) => r.method === "POST").body, { ids: [(await db.prepare("SELECT MAX(id) AS n FROM notifications").get()).n] });
+  assert.equal(await unreadInDb(a.id), 0);
 
   const bellB = await mountBell(t, { root, cookie: b.cookie, userId: b.id });
   await bellB.click();
@@ -255,14 +258,14 @@ test("guard: with nothing loaded (offline first load, or zero notices) opening n
 test("guard: the 'all' path stops at the newest id shown, so a notice that arrived after the poll stays unread and is announced", async (t) => {
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  for (let i = 0; i <= LIST_LIMIT; i++) approve(db, a.id, `n${i}`);
-  const shownTop = db.prepare("SELECT MAX(id) AS n FROM notifications").get().n;
+  for (let i = 0; i <= LIST_LIMIT; i++) await approve(db, a.id, `n${i}`);
+  const shownTop = (await db.prepare("SELECT MAX(id) AS n FROM notifications").get()).n;
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
-  const late = approve(db, a.id, "arrived after the last poll");
+  const late = await approve(db, a.id, "arrived after the last poll");
   await bell.click();
   assert.deepEqual(bell.sent.find((r) => r.method === "POST").body, { all: true, upTo: shownTop });
-  assert.equal(unreadInDb(a.id), 1);
-  assert.equal(db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(late).read_at, null);
+  assert.equal(await unreadInDb(a.id), 1);
+  assert.equal((await db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(late)).read_at, null);
   await bell.poll();
   assert.match(bell.live(), /New notification\. 1 unread/);
 });
@@ -273,7 +276,7 @@ test("guard: the alternating no-break space is the only difference, sits only at
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   const heard = [];
   for (let i = 0; i < 4; i++) {
-    approve(db, a.id, `n${i}`);
+    await approve(db, a.id, `n${i}`);
     await bell.poll();
     heard.push(bell.live());
     await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true } }); // another tab reads it
@@ -300,8 +303,8 @@ test("guard: time labels floor at each unit boundary and clamp the future", asyn
     [86_400 * 6.9, /^6 days ago$/],
   ];
   for (const [seconds] of cases) {
-    const id = approve(db, a.id, `${seconds}`);
-    db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(ago(seconds), id);
+    const id = await approve(db, a.id, `${seconds}`);
+    await db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(ago(seconds), id);
   }
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   await bell.click();
@@ -309,30 +312,55 @@ test("guard: time labels floor at each unit boundary and clamp the future", asyn
   cases.forEach(([seconds, want], i) => assert.match(shown[i], want, `${seconds} s shown as "${shown[i]}"`));
 });
 
-test("guard: a teammate's notify after an await inside withTransaction writes nothing and raises no unhandled rejection", async (t) => {
+test("guard: a teammate's notify on the top-level db writes nothing and raises no unhandled rejection; on the transaction connection after an await it commits or rolls back with the transaction", async (t) => {
   const { db, signup } = await start(t);
   const a = await signup("sok.dara");
   const unhandled = [];
   const onUnhandled = (err) => unhandled.push(err);
   process.on("unhandledRejection", onUnhandled);
   t.after(() => process.off("unhandledRejection", onUnhandled));
+  const count = async () => (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
+  const input = (message) => ({ userId: a.id, type: "request_approved", message });
+
+  // Outside any transaction: the top-level db is refused with a clear message and nothing is stored.
+  await assert.rejects(notify(db, input("outside")), /withTransaction/);
+  // Inside a transaction but through the top-level db instead of the connection: refused too, and the transaction fails with it.
   let late;
-  assert.throws(
-    () =>
-      withTransaction(db, async () => {
-        await null;
-        try {
-          notify(db, { userId: a.id, type: "request_approved", message: "after the await" });
-        } catch (err) {
-          late = err;
-          throw err;
-        }
-      }),
-    /synchronous/,
+  await assert.rejects(
+    withTransaction(db, async () => {
+      await null;
+      try {
+        await notify(db, input("after the await, wrong handle"));
+      } catch (err) {
+        late = err;
+        throw err;
+      }
+    }),
+    /withTransaction/,
   );
+  assert.match(late?.message ?? "", /withTransaction/, "the wrong-handle notify call is refused with a clear message");
+  assert.equal(await count(), 0);
+
+  // On the transaction connection after an await: written, and committed with the transaction.
+  await withTransaction(db, async (tx) => {
+    await null;
+    await notify(tx, input("committed after an await"));
+    assert.equal((await tx.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, 1);
+  });
+  assert.equal(await count(), 1);
+
+  // Same call, but the transaction fails afterwards: the notice goes with it.
+  await assert.rejects(
+    withTransaction(db, async (tx) => {
+      await null;
+      await notify(tx, input("rolled back"));
+      throw new Error("the change this notice reports failed");
+    }),
+    /the change this notice reports failed/,
+  );
+  assert.equal(await count(), 1);
+
   await new Promise((resolve) => setImmediate(resolve));
-  assert.match(late?.message ?? "", /withTransaction/, "the late notify call is refused with a clear message");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 0);
   assert.equal(unhandled.length, 0);
 });
 
@@ -340,39 +368,37 @@ test("guard: { all, upTo } with an upTo taken from another user's notice marks o
   const { db, call, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("chan.sophea");
-  const a1 = approve(db, a.id, "a1");
-  const b1 = approve(db, b.id, "b1");
-  const a2 = approve(db, a.id, "a2");
+  const a1 = await approve(db, a.id, "a1");
+  const b1 = await approve(db, b.id, "b1");
+  const a2 = await approve(db, a.id, "a2");
   const res = await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true, upTo: b1 } });
   assert.deepEqual(await res.json(), { unread: 1 });
-  assert.notEqual(db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(a1).read_at, null);
-  assert.equal(db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(a2).read_at, null);
-  assert.equal(unreadInDb(b.id), 1, "the other user's notice is untouched");
+  assert.notEqual((await db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(a1)).read_at, null);
+  assert.equal((await db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(a2)).read_at, null);
+  assert.equal(await unreadInDb(b.id), 1, "the other user's notice is untouched");
 });
 
 // ---------- defects ----------
 
-// DEFECT: package.json allows Node >= 22.13, but DatabaseSync.isTransaction only exists from Node 22.16.0 (and 24.0.0),
-// per the Node sqlite docs. On 22.13 to 22.15 `db.isTransaction` is undefined, so notify's guard silently does nothing
-// and a teammate's notify outside withTransaction is saved on its own, the exact mistake the guard is meant to catch.
-// Fix: raise engines to ">=22.16" (one line), or refuse when typeof db.isTransaction !== "boolean".
+// The guard used to read node:sqlite's DatabaseSync.isTransaction, which only exists from Node 22.16. It now reads the
+// adapter's own isTransaction flag, so it does not depend on node:sqlite or the Node version at all.
 test("DEFECT: notify's transaction guard holds on every Node version package.json allows", async (t) => {
   const { db, signup } = await start(t);
   const a = await signup("sok.dara");
-  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  const [maj, min] = pkg.engines.node.replace(/^>=\s*/, "").split(".").map(Number);
-  const enginesOk = maj > 22 || (maj === 22 && min >= 16);
-  // What notify sees on Node 22.13 to 22.15: the same database, without the isTransaction getter.
-  const oldNodeDb = new Proxy(db, {
-    get: (target, key) => (key === "isTransaction" ? undefined : typeof target[key] === "function" ? target[key].bind(target) : target[key]),
+  const input = { userId: a.id, type: "request_approved", message: "outside any transaction" };
+  const count = async () => (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
+  // The top-level db, and a stand-in object whose only transaction signal is isTransaction: false.
+  const falseFlag = { isTransaction: false, prepare: db.prepare.bind(db) };
+  assert.equal(db.isTransaction, false);
+  await assert.rejects(notify(db, input), /withTransaction/);
+  await assert.rejects(notify(falseFlag, input), /withTransaction/);
+  assert.equal(await count(), 0, "a refused notify writes nothing");
+  // The transaction connection carries the flag as true and is accepted.
+  await withTransaction(db, async (tx) => {
+    assert.equal(tx.isTransaction, true);
+    await notify(tx, input);
   });
-  let refused = false;
-  try {
-    notify(oldNodeDb, { userId: a.id, type: "request_approved", message: "outside any transaction" });
-  } catch {
-    refused = true;
-  }
-  assert.ok(enginesOk || refused, `engines is "${pkg.engines.node}" and notify ran outside a transaction there`);
+  assert.equal(await count(), 1);
 });
 
 // DEFECT: a notice that arrives after the last poll is counted by the mark-read answer, so on open the badge says
@@ -382,9 +408,9 @@ test("DEFECT: notify's transaction guard holds on every Node version package.jso
 test("DEFECT: when the panel is open, the badge never counts a notice the panel does not show", async (t) => {
   const { db, root, signup } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "seen at the last poll");
+  await approve(db, a.id, "seen at the last poll");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
-  approve(db, a.id, "arrived after the last poll");
+  await approve(db, a.id, "arrived after the last poll");
   await bell.click();
   const listed = bell.items().map(textOf).join(" | ");
   assert.ok(

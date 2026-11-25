@@ -16,10 +16,13 @@ const realFetch = globalThis.fetch; // the UI harness swaps fetch, so the test c
 const realGlobals = { setInterval, clearInterval, fetch: realFetch, document: globalThis.document, window: globalThis.window };
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, { body, cookie } = {}) =>
     realFetch(`${root}${path}`, {
@@ -33,14 +36,15 @@ async function start(t) {
     const { user } = await res.json();
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
   };
-  const unreadInDb = (userId) => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
+  const unreadInDb = async (userId) =>
+    (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId)).n;
   return { db, root, call, signup, unreadInDb };
 }
 
 // notify needs a transaction; callers inside withTransaction already have one.
 const approve = (db, userId, message = "ok") => {
-  const run = () => notify(db, { userId, type: "request_approved", message });
-  return db.isTransaction ? run() : withTransaction(db, run);
+  const run = (conn) => notify(conn, { userId, type: "request_approved", message });
+  return db.isTransaction ? run(db) : withTransaction(db, run);
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -239,24 +243,24 @@ test("announcement: several new notices in one poll say how many, one says the o
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   const readAll = () => call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true } });
 
-  approve(db, a.id, "one");
+  await approve(db, a.id, "one");
   await bell.poll();
   assert.equal(bell.live().replace(/ $/, ""), "New notification. 1 unread.");
   await readAll();
 
-  for (const id of [1, 2]) approve(db, a.id, `pair ${id}`);
+  for (const id of [1, 2]) await approve(db, a.id, `pair ${id}`);
   await bell.poll();
   const first = bell.live();
   assert.equal(first.replace(/ $/, ""), "2 new notifications. 2 unread.");
   await readAll();
 
-  for (const id of [1, 2]) approve(db, a.id, `again ${id}`);
+  for (const id of [1, 2]) await approve(db, a.id, `again ${id}`);
   await bell.poll();
   assert.equal(bell.live().replace(/ $/, ""), "2 new notifications. 2 unread.");
   assert.notEqual(bell.live(), first, "the same words twice in a row must still change the DOM text");
 
   // The count is of new notices, not of unread ones: another tab read all three before this tab polled.
-  for (const id of [1, 2, 3]) approve(db, a.id, `trio ${id}`);
+  for (const id of [1, 2, 3]) await approve(db, a.id, `trio ${id}`);
   await readAll();
   await bell.poll();
   assert.match(bell.live(), /^3 new notifications\. 0 unread\./);
@@ -267,8 +271,8 @@ test("timeAgo: never prints 12 months, years start at 365 days", async (t) => {
   const a = await signup("sok.dara");
   const days = [330, 359, 360, 364, 365, 400, 729, 730, 1100];
   for (const d of days) {
-    const id = approve(db, a.id, `${d} days`);
-    db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(new Date(Date.now() - (d * DAY + 60) * 1000).toISOString(), id);
+    const id = await approve(db, a.id, `${d} days`);
+    await db.prepare("UPDATE notifications SET created_at = ? WHERE id = ?").run(new Date(Date.now() - (d * DAY + 60) * 1000).toISOString(), id);
   }
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   await bell.click();
@@ -283,7 +287,7 @@ test("timeAgo: never prints 12 months, years start at 365 days", async (t) => {
 test("outside click: listens for pointerdown (touch), not mousedown, and only outside closes the panel", async (t) => {
   const { db, root, signup } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "hello");
+  await approve(db, a.id, "hello");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
   assert.deepEqual(bell.listenerTypes(), [], "closed panel holds no document listeners");
   await bell.click();
@@ -304,7 +308,7 @@ test("outside click: listens for pointerdown (touch), not mousedown, and only ou
 test("mark-read reload: a notice newer than the list is listed, and a poll that was in flight cannot undo the result", async (t) => {
   const { db, root, signup, unreadInDb } = await start(t);
   const a = await signup("sok.dara");
-  approve(db, a.id, "seen");
+  await approve(db, a.id, "seen");
   const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id });
 
   // A poll is held on the wire carrying the old state (1 unread), then the panel opens and a new notice lands meanwhile.
@@ -312,14 +316,14 @@ test("mark-read reload: a notice newer than the list is listed, and a poll that 
   bell.holdNext((method) => method === "GET" && first && !(first = false));
   await bell.poll();
   assert.equal(bell.heldCount(), 1);
-  approve(db, a.id, "landed while the poll was held");
+  await approve(db, a.id, "landed while the poll was held");
   await bell.click();
   await bell.releaseAll(); // the stale poll now answers; it must be ignored
 
   const listed = bell.items().map(textOf).join(" | ");
   assert.match(listed, /landed while the poll was held/, "the panel lists what the badge counts");
   assert.equal(bell.label(), "Notifications, 1 unread");
-  assert.equal(unreadInDb(a.id), 1);
+  assert.equal(await unreadInDb(a.id), 1);
   assert.match(bell.live(), /^New notification\. 1 unread\./);
 });
 

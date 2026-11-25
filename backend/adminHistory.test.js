@@ -26,10 +26,13 @@ const LOANS = [
 ];
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
 
   const signup = await fetch(`${root}/api/auth/signup`, {
@@ -39,25 +42,29 @@ async function start(t) {
   });
   assert.equal(signup.status, 201);
   const adminId = (await signup.json()).user.id;
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
   const cookie = signup.headers.get("set-cookie").split(";")[0];
 
-  const userIds = PEOPLE.map(([email, name, role]) =>
-    Number(db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, 'x')").run(email, name, role).lastInsertRowid),
-  );
-  const itemIds = ITEMS.map((name) =>
-    Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Lab', 5)").run(name).lastInsertRowid),
-  );
-  const loanIds = LOANS.map(([who, what, date, status]) =>
-    Number(
-      db
-        .prepare(
-          `INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at)
-           VALUES (?, ?, ?, date(?, '+7 days'), ?, ?)`,
-        )
-        .run(itemIds[what], userIds[who], date, date, status, status === "returned" ? `${date}T09:30:00.000Z` : null).lastInsertRowid,
-    ),
-  );
+  const userIds = [];
+  for (const [email, name, role] of PEOPLE) {
+    const row = await db.prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, ?, ?, 'x') RETURNING id").run(email, name, role);
+    userIds.push(Number(row.lastInsertRowid));
+  }
+  const itemIds = [];
+  for (const name of ITEMS) {
+    const row = await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Lab', 5) RETURNING id").run(name);
+    itemIds.push(Number(row.lastInsertRowid));
+  }
+  const loanIds = [];
+  for (const [who, what, date, status] of LOANS) {
+    const row = await db
+      .prepare(
+        `INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status, returned_at)
+         VALUES (?, ?, ?, (?::date + 7)::text, ?, ?) RETURNING id`,
+      )
+      .run(itemIds[what], userIds[who], date, date, status, status === "returned" ? `${date}T09:30:00.000Z` : null);
+    loanIds.push(Number(row.lastInsertRowid));
+  }
 
   const get = (path) => fetch(`${root}${path}`, { headers: { cookie } });
   const list = async (query) => {
