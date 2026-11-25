@@ -120,8 +120,8 @@ export function poolConfig(url, ca = process.env.DATABASE_CA) {
 
   let host = "";
   try {
-    // pg-connection-string lets a host= parameter override the host in the URL, so that is the host pg connects to.
-    host = (params.get("host") || new URL(connectionString).hostname).replace(/^\[(.+)\]$/, "$1").toLowerCase();
+    // pg-connection-string lets host= parameters override the URL host, and the last one wins, so that is the host pg connects to.
+    host = (params.getAll("host").at(-1) || new URL(connectionString).hostname).replace(/^\[(.+)\]$/, "$1").toLowerCase();
   } catch {} // an unreadable URL counts as remote, so it gets TLS; pg reports the real problem
   let ssl = false; // a Postgres on this machine has no certificate worth checking
   if (!LOCAL_HOSTS.has(host)) {
@@ -148,7 +148,7 @@ function lockFolder(folder) {
       unlinkSync(file);
     } catch {} // already gone
   };
-  for (;;) {
+  for (let attempt = 0; ; attempt++) {
     try {
       writeFileSync(file, String(process.pid), { flag: "wx" });
       break;
@@ -165,8 +165,10 @@ function lockFolder(folder) {
         alive = killErr.code === "EPERM"; // alive but owned by someone else
       }
       if (alive) {
-        throw new Error(`The local database folder ${folder} is in use by process ${pid}. Stop npm run dev:server (or the other process) first, then try again.`);
+        throw new Error(`The local database folder ${folder} is in use by process ${pid}. Stop npm run dev:server (or the other process) first, then try again. If no such process is running, delete ${file}.`);
       }
+      // A stale lock is taken over once; a lock that cannot be removed (for example a folder named app.lock) must not spin forever.
+      if (attempt > 0) throw new Error(`Could not take over the stale lock ${file}. Delete it, then try again.`);
       // shortcut: two processes taking over the same stale lock at the same moment can both succeed; use an OS lock if that ever matters
       remove();
     }
