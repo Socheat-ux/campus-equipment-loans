@@ -224,5 +224,5 @@ test("the admin list returns the server's Cambodia day, not the host's", async (
   const res = await h.call("GET", "/api/admin/borrow-requests", undefined, h.admin.cookie);
   assert.equal(res.status, 200);
   assert.equal(res.body.today, "2026-11-10");
-  assert.deepEqual(Object.keys(res.body).sort(), ["counts", "requests", "today"]);
+  assert.deepEqual(Object.keys(res.body).sort(), ["counts", "requests", "today", "viewerId"]);
 });

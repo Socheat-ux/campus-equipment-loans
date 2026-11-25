@@ -36,6 +36,9 @@ export default function AdminBorrowRequests() {
   const [adminCancelError, setAdminCancelError] = useState("");
   // A pending request whose start date is before today (Cambodia day from the server) can only be rejected.
   const startPassed = (request) => request.status === "pending" && request.borrowDate < (data.today ?? todayISO());
+  // An admin who was promoted from student may see their own requests; another admin has to approve those.
+  const ownRequest = (request) => data.viewerId !== undefined && request.userId === data.viewerId;
+  const canApprove = (request) => !startPassed(request) && !ownRequest(request);
 
   const load = useCallback(async (nextStatus) => {
     setLoading(true);
@@ -209,10 +212,11 @@ export default function AdminBorrowRequests() {
                           {request.status === "pending" ? (
                             <div className="dash-request-actions">
                               {startPassed(request) && <span className="dash-status is-out">Start date passed</span>}
+                              {ownRequest(request) && <span className="dash-status is-out">Your own request</span>}
                               <button type="button" className="dash-reject-btn" disabled={busy} onClick={() => openReview(request)}>
                                 Reject
                               </button>
-                              {!startPassed(request) && (
+                              {canApprove(request) && (
                                 <button type="button" className="btn-primary dash-save-btn" disabled={busy} onClick={() => openReview(request)}>
                                   Approve
                                 </button>
@@ -280,7 +284,9 @@ export default function AdminBorrowRequests() {
                     <div><dt>Purpose</dt><dd>{review.purpose || "—"}</dd></div>
                   </dl>
                   <p className="dash-review-note">
-                    {startPassed(review)
+                    {ownRequest(review)
+                      ? "This is your own request. Another administrator must approve it."
+                      : startPassed(review)
                       ? "Start date passed. Reject this request so the student can send a new one."
                       : `${review.stock} of ${review.total} available. Approving reserves this item for the borrow dates.`}
                   </p>
@@ -308,7 +314,7 @@ export default function AdminBorrowRequests() {
                 <>
                   <button type="button" className="btn-outline" onClick={closeReview} disabled={busy}>Cancel</button>
                   <button type="button" className="dash-reject-btn" onClick={() => setStage("reject")} disabled={busy}>Reject</button>
-                  {!startPassed(review) && (
+                  {canApprove(review) && (
                     <button type="button" className="btn-primary dash-save-btn" onClick={() => decide("approve")} disabled={busy}>
                       Approve request
                     </button>
