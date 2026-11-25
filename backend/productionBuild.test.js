@@ -23,6 +23,6 @@ test("a .env with NODE_ENV=development next to vite.config.js still gives a prod
   t.after(() => (saved === undefined ? delete process.env.NODE_ENV : (process.env.NODE_ENV = saved)));
 
   const config = await resolveConfig({ configFile: join(dir, "vite.config.js"), logLevel: "silent" }, "build", "production", "production"); // the same call vite build makes
-  assert.match(config.env.MODE, /^production$/);
+  assert.equal(config.mode, "production");
   assert.equal(config.isProduction, true, "the build would bundle development React");
 });
