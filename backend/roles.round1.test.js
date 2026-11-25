@@ -303,15 +303,16 @@ test("DEFECT: the route-count check misses an /api route added directly on the a
 
   const db = openDb(":memory:");
   const app = createApp(db);
-  const before = countRouterRoutes(app._router.stack);
+  const before = countRouterRoutes(app.router.stack);
   // Same place a teammate would write it in backend/app.js: above the /api not-found handler.
   app.post("/api/admin/reset", (req, res) => res.json({ reset: true }));
-  const stack = app._router.stack;
+  const stack = app.router.stack;
   const added = stack.pop();
-  const notFound = stack.findIndex((l) => !l.route && !l.handle.stack && l.regexp.test("/api/x") && !l.regexp.test("/other"));
+  const hits = (l, p) => l.matchers.some((match) => match(p));
+  const notFound = stack.findIndex((l) => !l.route && !l.handle.stack && hits(l, "/api/x") && !hits(l, "/other"));
   stack.splice(notFound, 0, added);
 
   const call = await startServer(t, app);
   assert.equal((await call("POST", "/api/admin/reset")).status, 200, "the new route is live and open to guests");
-  assert.equal(countRouterRoutes(app._router.stack), before + 1, "the count check should notice the new API route");
+  assert.equal(countRouterRoutes(app.router.stack), before + 1, "the count check should notice the new API route");
 });

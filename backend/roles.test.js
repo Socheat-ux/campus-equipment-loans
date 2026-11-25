@@ -49,10 +49,11 @@ function countRouterRoutes(stack, nested = false) {
       const paths = [].concat(layer.route.path).filter((p) => nested || (typeof p === "string" && p.startsWith("/api")));
       return sum + paths.length * Object.keys(layer.route.methods).length;
     }
-    const inner = layer.handle.stack ?? layer.handle._router?.stack; // a router, or an app with its own router
+    const inner = layer.handle.stack ?? layer.handle.router?.stack; // a router, or an app with its own router
     if (inner) return sum + countRouterRoutes(inner, true);
-    // Express writes app.use("/api/x", fn) as the regexp ^\/api\/x...; the 404 handler's is ^\/api\/?... instead.
-    const mounted = !layer.regexp.fast_slash && (nested || /^\^\\\/api\\\/(?!\?)/.test(layer.regexp.source));
+    // Express 5 keeps no source path, only matchers: a layer mounted under /api matches neither "/api" itself (the 404 handler does) nor a path outside /api.
+    const hits = (path) => layer.matchers.some((match) => match(path));
+    const mounted = !layer.slash && (nested || (!hits("/api") && !hits("/not-api")));
     return sum + (mounted ? 1 : 0);
   }, 0);
 }
@@ -73,7 +74,7 @@ async function start(t, app) {
 test("every API route is listed, and each one lets in exactly the roles it should", async (t) => {
   const db = openDb(":memory:");
   const app = createApp(db);
-  assert.equal(countRouterRoutes(app._router.stack), ROUTES.length, "an API route was added or removed: update ROUTES");
+  assert.equal(countRouterRoutes(app.router.stack), ROUTES.length, "an API route was added or removed: update ROUTES");
 
   const call = await start(t, app);
   const signup = async (email) => {

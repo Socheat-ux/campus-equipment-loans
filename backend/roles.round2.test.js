@@ -211,9 +211,9 @@ test("DEFECT (low): the route-count check misses an /api endpoint written as pla
   const missed = [];
   for (const [name, add] of Object.entries(shapes)) {
     const app = createApp(openDb(":memory:"));
-    const before = countRouterRoutes(app._router.stack);
+    const before = countRouterRoutes(app.router.stack);
     add(app);
-    if (countRouterRoutes(app._router.stack) === before) missed.push(name);
+    if (countRouterRoutes(app.router.stack) === before) missed.push(name);
   }
   assert.deepEqual(missed, [], "each of these is a live, unprotected /api endpoint that ROUTES never has to list");
 });
