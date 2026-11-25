@@ -60,7 +60,7 @@ export function equipmentRouter(db) {
     // The row lock keeps approvals and returns on this item waiting until the new total and shelf count are written.
     // Counting the approved loans, not quantity - available, keeps the shelf right even if available ever drifted.
     const outcome = await withTransaction(db, async (db) => {
-      const existing = await db.prepare("SELECT id FROM equipment WHERE id = ? FOR UPDATE").get(id);
+      const existing = await db.prepare("SELECT id FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(id);
       if (!existing) return { status: 404, body: { error: "Equipment not found." } };
       if (Object.keys(fields).length) return { status: 400, body: { error: "Please fix the fields below.", fields } };
       const { n: onLoan } = await db
@@ -93,7 +93,13 @@ export function equipmentRouter(db) {
       });
     }
 
-    await db.prepare("DELETE FROM equipment WHERE id = ?").run(existing.id);
+    try {
+      await db.prepare("DELETE FROM equipment WHERE id = ?").run(existing.id);
+    } catch (err) {
+      // A request inserted since the check above: 23001 (restrict) or 23503 (foreign key) from the ON DELETE RESTRICT.
+      if (err?.code !== "23001" && err?.code !== "23503") throw err;
+      return res.status(409).json({ error: "Cannot delete equipment that has existing borrow requests." });
+    }
     res.status(204).end();
   });
 

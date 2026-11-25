@@ -61,58 +61,64 @@ export async function notifyAdmins(db, { type, message, reason, requestId, creat
 export async function processDueReminders(db, today = todayISO()) {
   const dueDate = addDaysISO(today, 1);
   if (!dueDate) return 0;
-  const loans = await db.prepare(`
-    SELECT r.id, r.user_id, e.name AS equipment_name, r.return_date
+  // Most polls find nothing, so a read decides whether to write at all.
+  const anyDue = await db.prepare(`
+    SELECT r.id
+    FROM borrow_requests r
+    WHERE r.status = 'approved' AND r.return_date = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM notifications n WHERE n.user_id = r.user_id AND n.request_id = r.id AND n.type = 'due_soon'
+      )
+    LIMIT 1
+  `).get(dueDate);
+  if (!anyDue) return 0;
+  // One statement that re-checks status = 'approved' as it inserts (and locks those rows against a concurrent return),
+  // so a loan returned since the read above gets no reminder. The text and title match what notify() writes.
+  const { changes } = await db.prepare(`
+    INSERT INTO notifications (user_id, type, title, message, request_id)
+    SELECT r.user_id, 'due_soon', ?::text, 'Return ' || e.name || ' by ' || r.return_date || '.', r.id
     FROM borrow_requests r JOIN equipment e ON e.id = r.equipment_id
     WHERE r.status = 'approved' AND r.return_date = ?
       AND NOT EXISTS (
         SELECT 1 FROM notifications n WHERE n.user_id = r.user_id AND n.request_id = r.id AND n.type = 'due_soon'
       )
     ORDER BY r.id
-  `).all(dueDate);
-  if (!loans.length) return 0;
-  return withTransaction(db, async (tx) => {
-    let added = 0;
-    for (const loan of loans) {
-      const id = await notify(tx, {
-        userId: loan.user_id,
-        type: "due_soon",
-        message: `Return ${loan.equipment_name} by ${loan.return_date}.`,
-        requestId: loan.id,
-      });
-      if (id !== undefined) added++;
-    }
-    return added;
-  });
+    FOR SHARE OF r
+    ON CONFLICT DO NOTHING
+  `).run(TITLES.due_soon, dueDate);
+  return changes;
 }
 
 // Requests submitted before an admin existed (or before admin notices were added) still need to show in the bell.
 export async function backfillAdminRequestNotifications(db, adminId) {
   if (!Number.isInteger(adminId) || adminId < 1) throw new TypeError("backfill: adminId must be a positive integer.");
+  // Read first: almost every bell load has nothing to add, and then no transaction is opened.
+  const legacyMessages = new Set(
+    (
+      await db
+        .prepare("SELECT message FROM notifications WHERE user_id = ? AND type = 'request_submitted' AND request_id IS NULL")
+        .all(adminId)
+    ).map((row) => row.message),
+  );
+  const rows = await db
+    .prepare(
+      `SELECT r.id, r.created_at, e.name AS equipment_name, u.full_name, u.email
+       FROM borrow_requests r
+       JOIN equipment e ON e.id = r.equipment_id
+       JOIN users u ON u.id = r.user_id
+       WHERE NOT EXISTS (
+         SELECT 1 FROM notifications n WHERE n.user_id = ? AND n.request_id = r.id
+       )
+       ORDER BY r.created_at, r.id`,
+    )
+    .all(adminId);
+  const todo = rows
+    .map((row) => ({ row, message: `New borrow request from ${row.full_name || row.email} for ${row.equipment_name}.`.slice(0, MESSAGE_MAX) }))
+    .filter(({ message }) => !legacyMessages.has(message));
+  if (!todo.length) return 0;
   return withTransaction(db, async (tx) => {
-    const legacyMessages = new Set(
-      (
-        await tx
-          .prepare("SELECT message FROM notifications WHERE user_id = ? AND type = 'request_submitted' AND request_id IS NULL")
-          .all(adminId)
-      ).map((row) => row.message),
-    );
-    const rows = await tx
-      .prepare(
-        `SELECT r.id, r.created_at, e.name AS equipment_name, u.full_name, u.email
-         FROM borrow_requests r
-         JOIN equipment e ON e.id = r.equipment_id
-         JOIN users u ON u.id = r.user_id
-         WHERE NOT EXISTS (
-           SELECT 1 FROM notifications n WHERE n.user_id = ? AND n.request_id = r.id
-         )
-         ORDER BY r.created_at, r.id`,
-      )
-      .all(adminId);
     let added = 0;
-    for (const row of rows) {
-      const message = `New borrow request from ${row.full_name || row.email} for ${row.equipment_name}.`.slice(0, MESSAGE_MAX);
-      if (legacyMessages.has(message)) continue;
+    for (const { row, message } of todo) {
       const id = await notify(tx, {
         userId: adminId,
         type: "request_submitted",

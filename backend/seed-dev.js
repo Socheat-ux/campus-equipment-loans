@@ -1,6 +1,6 @@
-// Creates one test account per role for local testing: node backend/seed-dev.js [database path]
+// Creates one test account per role for local testing: node backend/seed-dev.js [database path] [--remote]
 // DATABASE_URL wins, then the path (a PGlite folder), then PGDATA_DIR or data/pgdata, like the server.
-// The password below is public, so this refuses to run with NODE_ENV=production.
+// The password below is public, so this refuses to run with NODE_ENV=production, and with DATABASE_URL set unless --remote is given.
 import { pathToFileURL } from "node:url";
 import { openDb, withTransaction } from "./db.js";
 import { hashPassword } from "./auth.js";
@@ -68,9 +68,15 @@ export async function seedTestAccounts(db) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const path = process.argv[2];
+  const args = process.argv.slice(2);
+  const path = args.find((arg) => !arg.startsWith("--"));
   if (process.env.NODE_ENV === "production") {
     console.error("Refusing to create test accounts with NODE_ENV=production.");
+    process.exit(1);
+  }
+  // A .env that points at the live database must not receive accounts with a public password by accident.
+  if (process.env.DATABASE_URL && !args.includes("--remote")) {
+    console.error("Refusing to create test accounts: DATABASE_URL is set, so this would write to that database. Pass --remote to do it anyway, or unset DATABASE_URL for the local copy.");
     process.exit(1);
   }
   const db = await openDb(process.env.DATABASE_URL || path || process.env.PGDATA_DIR || "data/pgdata");

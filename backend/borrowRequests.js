@@ -120,6 +120,8 @@ export function borrowRequestsRouter(db) {
         return requestId;
       });
     } catch (err) {
+      // The item was deleted after the lookup above (foreign key violation).
+      if (err?.code === "23503") return res.status(404).json({ error: "Equipment not found." });
       // Unique violation: another request for this item got in first.
       if (err?.code !== "23505") throw err;
       const raced = await findPending(req.user.id, equipment.id);

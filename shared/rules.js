@@ -52,9 +52,16 @@ export const EQUIPMENT_CATEGORIES = [
 
 export const EQUIPMENT_NAME_MAX = 100;
 
+// Postgres text cannot hold NUL, and other control characters only garble the page. Multi-line text (purpose, reasons)
+// may still use tab, newline and carriage return.
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
+const CONTROL_OR_BREAK = /[\u0000-\u001f]/;
+export const hasControlChars = (text) => typeof text === "string" && CONTROL.test(text);
+
 export function equipmentNameError(name) {
   if (typeof name !== "string" || !name.trim()) return "Enter the equipment name.";
   if (name.trim().length > EQUIPMENT_NAME_MAX) return `Equipment name must be ${EQUIPMENT_NAME_MAX} characters or fewer.`;
+  if (CONTROL_OR_BREAK.test(name.trim())) return "Equipment name cannot contain control characters.";
   return null;
 }
 
@@ -112,12 +119,14 @@ export function purposeError(purpose) {
   if (purpose === null || purpose === undefined || purpose === "") return null;
   if (typeof purpose !== "string") return "Purpose must be text.";
   if (purpose.trim().length > PURPOSE_MAX) return `Purpose must be ${PURPOSE_MAX} characters or fewer.`;
+  if (hasControlChars(purpose)) return "Purpose cannot contain control characters.";
   return null;
 }
 
 export function rejectionReasonError(reason) {
   if (typeof reason !== "string" || !reason.trim()) return "A reason is required.";
   if (reason.trim().length > REJECTION_REASON_MAX) return `Reason must be ${REJECTION_REASON_MAX} characters or fewer.`;
+  if (hasControlChars(reason)) return "Reason cannot contain control characters.";
   return null;
 }
 

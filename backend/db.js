@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync } from "node:fs";
 import pg from "pg";
-import { PGlite } from "@electric-sql/pglite";
 
 // Postgres in production (Supabase, DATABASE_URL). Without a URL the same schema runs on PGlite, Postgres inside this
 // process: in memory for tests, or in a folder for local work, so nobody writes to the live database by accident.
@@ -71,6 +70,13 @@ const SCHEMA = `
     RETURN NEW;
   END $$ LANGUAGE plpgsql;
   CREATE OR REPLACE TRIGGER equipment_defaults BEFORE INSERT ON equipment FOR EACH ROW EXECUTE FUNCTION equipment_defaults();
+  -- Supabase serves every table in public over its REST API. With RLS on and no policy, the anon key reads nothing;
+  -- the owner role this app connects as bypasses RLS, so the app is not affected.
+  ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE equipment ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE borrow_requests ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 `;
 
 // The code writes SQLite-style "?" placeholders; Postgres numbers them. No SQL text in this app has a literal "?".
@@ -99,25 +105,53 @@ function adapter(query, exec, isTransaction) {
   };
 }
 
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+// pg lets sslmode and friends in the URL override the ssl option, so they are removed and TLS is decided here only.
+const SSL_PARAMS = /^(ssl|sslmode|sslcert|sslkey|sslrootcert|sslnegotiation|uselibpqcompat)$/i;
+
+// Pool settings for a Postgres URL. The URL is never logged.
+export function poolConfig(url, ca = process.env.DATABASE_CA) {
+  const cut = url.indexOf("?");
+  const params = new URLSearchParams(cut < 0 ? "" : url.slice(cut + 1));
+  for (const key of [...params.keys()]) if (SSL_PARAMS.test(key)) params.delete(key);
+  const rest = params.toString();
+  const connectionString = (cut < 0 ? url : url.slice(0, cut)) + (rest ? `?${rest}` : "");
+
+  let host = "";
+  try {
+    host = new URL(connectionString).hostname.replace(/^\[(.+)\]$/, "$1").toLowerCase();
+  } catch {} // an unreadable URL counts as remote, so it gets TLS; pg reports the real problem
+  let ssl = false; // a Postgres on this machine has no certificate worth checking
+  if (!LOCAL_HOSTS.has(host)) {
+    // shortcut: encrypted but the server certificate is not verified; set DATABASE_CA to the Supabase CA to verify
+    ssl = ca ? { ca } : { rejectUnauthorized: false };
+  }
+  // connectionTimeoutMillis: a paused Supabase project answers with an error instead of hanging every request.
+  return { connectionString, ssl, max: 5, connectionTimeoutMillis: 10_000 };
+}
+
 let template; // the in-memory database every ":memory:" caller gets a copy of
 
 export async function openDb(url) {
   if (url && /^postgres(ql)?:\/\//.test(url)) {
-    const pool = new pg.Pool({ connectionString: url, max: 5 });
+    const pool = new pg.Pool(poolConfig(url));
+    // An idle connection dropped by the server emits "error" on the pool; unhandled, it would crash the process.
+    pool.on("error", (err) => console.error("Postgres connection error:", err.message));
     await pool.query(SCHEMA);
     const db = adapter((text, params) => pool.query(text, params), (sql) => pool.query(sql), false);
     db.transaction = async (fn) => {
       const client = await pool.connect();
+      let broken; // a client that could not roll back is in an unknown state, so the pool must drop it
       try {
         await client.query("BEGIN");
         const result = await fn(adapter((text, params) => client.query(text, params), (sql) => client.query(sql), true));
         await client.query("COMMIT");
         return result;
       } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
+        await client.query("ROLLBACK").catch((rollbackErr) => (broken = rollbackErr));
         throw err;
       } finally {
-        client.release();
+        client.release(broken);
       }
     };
     db.close = () => pool.end();
@@ -125,6 +159,8 @@ export async function openDb(url) {
   }
   // ":memory:" or no path: a fresh database for one test file. Any other value is a folder for local work.
   let lite;
+  // Loaded here, not at the top, so a production install without dev dependencies starts with DATABASE_URL.
+  const { PGlite } = await import("@electric-sql/pglite");
   if (url && url !== ":memory:") {
     mkdirSync(url, { recursive: true }); // PGlite does not create a missing data/ parent on a fresh checkout
     lite = await PGlite.create(url);

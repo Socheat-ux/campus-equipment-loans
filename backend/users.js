@@ -44,11 +44,12 @@ export function usersRouter(db) {
     const role = req.body.role;
 
     // Do not let the last administrator lock everyone out of this page (and every other admin page).
+    // NO KEY UPDATE, not UPDATE: the id is not changing, and the foreign-key check of a parallel borrow request (KEY SHARE on users) must not wait or deadlock.
     // The admin rows stay locked until the update is written, so two admins demoting each other at once take turns:
     // the second one then sees one administrator left and is refused. The role is read again after the lock.
     const outcome = await withTransaction(db, async (tx) => {
-      const admins = (await tx.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id FOR UPDATE").all()).length;
-      const current = await tx.prepare("SELECT role FROM users WHERE id = ? FOR UPDATE").get(id);
+      const admins = (await tx.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY id FOR NO KEY UPDATE").all()).length;
+      const current = await tx.prepare("SELECT role FROM users WHERE id = ? FOR NO KEY UPDATE").get(id);
       if (!current) return { status: 404, body: { error: "User not found." } };
       if (current.role === "admin" && role !== "admin" && admins <= 1) {
         return { status: 409, body: { error: "At least one administrator must remain." } };

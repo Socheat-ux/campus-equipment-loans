@@ -44,6 +44,11 @@ const ONCE_TYPES = new Set(["due_soon", "request_submitted"]);
 // Before SCRUM-46 a user could hold several pending requests for one item; Postgres allows one (borrow_requests_one_pending).
 const DUPLICATE_PENDING_REASON = "Duplicate pending request closed during the move to Postgres";
 
+// pg may hand back numbers, bigints or strings for the same integer, so values are compared as text.
+// An empty source asset_id is filled by the equipment_defaults trigger, so any stored value matches it.
+const sameValue = (stored, source, fillsBlank) =>
+  fillsBlank && source === "" ? true : (stored ?? null) === null ? (source ?? null) === null : String(stored) === String(source);
+
 function missingParts(lite) {
   const problems = [];
   for (const [table, { columns }] of Object.entries(TABLES)) {
@@ -100,15 +105,24 @@ export async function copySqliteToPostgres(sqlitePath, db) {
             if (seen.has(key)) continue; // rows come in id order, so the lowest id of the group was kept
             seen.add(key);
           }
+          // A session token is a secret, so a session is named by its user.
+          const which = row.id !== undefined ? `id ${row.id}` : `user_id ${row.user_id}`;
+          let changes;
           try {
-            const { changes } = await insert.run(...spec.columns.map((c) => row[c]));
-            copied += changes;
-            if (duplicate) converted += changes;
+            ({ changes } = await insert.run(...spec.columns.map((c) => row[c])));
           } catch (err) {
-            // A session token is a secret, so a session is named by its user.
-            const which = row.id !== undefined ? `id ${row.id}` : `user_id ${row.user_id}`;
             throw new Error(`Copy failed on ${table} ${which}: ${err.message}. Nothing was written.`, { cause: err });
           }
+          if (!changes) {
+            // The key was taken. Only the very same row (from an earlier run) is fine; any other row would silently
+            // attach this file's sessions and loans to someone else's id.
+            const there = await tx.prepare(`SELECT ${spec.columns.join(", ")} FROM ${table} WHERE ${spec.conflict} = ?`).get(row[spec.conflict]);
+            if (!there || spec.columns.some((c) => !sameValue(there[c], row[c], table === "equipment" && c === "asset_id"))) {
+              throw new Error(`Copy failed on ${table} ${which}: a different row already has this id. Nothing was written.`);
+            }
+          }
+          copied += changes;
+          if (duplicate) converted += changes;
         }
         counts[table] = { copied, skipped: rows.length - copied };
         if (table === "borrow_requests") counts[table].converted = converted;

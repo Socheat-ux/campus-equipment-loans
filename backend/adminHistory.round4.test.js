@@ -13,7 +13,7 @@ for (const file of ["adminHistory.round2.test.js", "adminHistory.round3.test.js"
     const run = spawnSync(process.execPath, ["--test", fileURLToPath(new URL(`./${file}`, import.meta.url))], {
       env: { ...env, TZ: "" },
       encoding: "utf8",
-      timeout: 60000,
+      timeout: 180000, // each child starts its own PGlite; under a full parallel run that alone can take most of a minute
     });
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
   });

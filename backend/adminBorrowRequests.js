@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAdmin } from "./auth.js";
 import { isId, withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError, todayISO } from "../shared/rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, hasControlChars, parseISODate, rejectionReasonError, todayISO } from "../shared/rules.js";
 
 // Approving after the start date would create a loan that is already late, so the admin rejects instead.
 const START_PASSED = "The start date has passed. Reject this request so the student can send a new one.";
@@ -184,7 +184,7 @@ export function adminBorrowRequestsRouter(db) {
         if (current.user_id === req.user.id) throw forbidden(OWN_REQUEST);
         if (current.borrow_date < todayISO()) throw conflict(START_PASSED);
         const equipment = await tx
-          .prepare("SELECT id, name, location, available FROM equipment WHERE id = ? FOR UPDATE")
+          .prepare("SELECT id, name, location, available FROM equipment WHERE id = ? FOR NO KEY UPDATE")
           .get(current.equipment_id);
         if (!equipment || equipment.available < 1) throw conflict("This item is no longer available.");
         const decidedAt = new Date().toISOString();
@@ -227,7 +227,7 @@ export function adminBorrowRequestsRouter(db) {
       await withTransaction(db, async (tx) => {
         const current = await lockRequest(tx, id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be rejected.");
-        const equipment = await tx.prepare("SELECT name FROM equipment WHERE id = ? FOR UPDATE").get(current.equipment_id);
+        const equipment = await tx.prepare("SELECT name FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
         const decidedAt = new Date().toISOString();
         await tx.prepare(
           "UPDATE borrow_requests SET status = 'rejected', decided_by = ?, decided_at = ?, decision_reason = ? WHERE id = ?",
@@ -257,7 +257,7 @@ export function adminBorrowRequestsRouter(db) {
       await withTransaction(db, async (tx) => {
         const current = await lockRequest(tx, id);
         if (!current || current.status !== "approved") throw conflict("Only approved loans can be marked returned.");
-        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR UPDATE").get(current.equipment_id);
+        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
         // LEAST: a returned item is always recorded, and stock never goes above what the store owns.
         const returnedAt = new Date().toISOString();
         await tx.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
@@ -291,13 +291,19 @@ export function adminBorrowRequestsRouter(db) {
         fields: { reason: "Reason must be 300 characters or fewer." },
       });
     }
+    if (hasControlChars(reason)) {
+      return res.status(400).json({
+        error: "Reason cannot contain control characters.",
+        fields: { reason: "Reason cannot contain control characters." },
+      });
+    }
     try {
       await withTransaction(db, async (tx) => {
         const current = await lockRequest(tx, id);
         if (!current || !["approved", "rejected"].includes(current.status)) {
           throw conflict("Only approved or rejected requests can be cancelled by admin.");
         }
-        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR UPDATE").get(current.equipment_id);
+        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
         const decidedAt = new Date().toISOString();
         if (current.status === "approved") {
           await tx.prepare("UPDATE equipment SET available = LEAST(available + 1, quantity), updated_at = ? WHERE id = ?").run(
