@@ -1,12 +1,13 @@
 // One-off copy of the old SQLite file (final schema, commit 3b3b4ad) into Postgres: node backend/copy-sqlite.js <path-to-sqlite-file>
 // Target: DATABASE_URL if set, else the local PGlite folder the server uses (PGDATA_DIR or data/pgdata).
-// The SQLite file is opened read-only. All tables land in one transaction, ids are kept, and a second run copies nothing.
+// The SQLite file is opened read-only. All tables land in one transaction and ids are kept. It only copies into an empty
+// target. Once the target has rows, a run inserts nothing and only checks that the rows of the file are there unchanged.
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { openDb, withTransaction } from "./db.js";
+import { isPostgresUrl, openDb, withTransaction } from "./db.js";
 
-// Copy order follows the foreign keys. conflict is the column ON CONFLICT uses, so a row already copied is left alone.
+// Copy order follows the foreign keys. conflict is the column that identifies a row, used to find it again in the target.
 const TABLES = {
   users: {
     columns: ["id", "email", "full_name", "role", "password_hash", "created_at"],
@@ -64,6 +65,8 @@ function missingParts(lite) {
 // Returns { users, sessions, equipment, borrow_requests, notifications }, each { copied, skipped }.
 // borrow_requests also reports converted: later duplicate pending requests (same user and item) copied as 'cancelled'; the lowest id stays pending.
 // skipped is every source row that was not inserted: already in Postgres, or a repeated reminder the new index forbids.
+// A target that already has rows in any of the five tables is in use: nothing is inserted (a deleted session or item must
+// not come back). The rows are only compared, and the call throws, naming the counts, unless every one is present and equal.
 export async function copySqliteToPostgres(sqlitePath, db) {
   if (!existsSync(sqlitePath)) throw new Error(`SQLite file not found: ${sqlitePath}`);
   const lite = new DatabaseSync(sqlitePath, { readOnly: true });
@@ -83,12 +86,21 @@ export async function copySqliteToPostgres(sqlitePath, db) {
 
     const counts = {};
     await withTransaction(db, async (tx) => {
+      let inUse = false;
+      for (const table of Object.keys(TABLES)) inUse ||= Boolean(await tx.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get());
+      const report = [];
+      const different = [];
+      let missingTotal = 0;
       for (const [table, spec] of Object.entries(TABLES)) {
         const list = spec.select ? spec.select(spec.columns) : spec.columns.join(", ");
         const rows = lite.prepare(`SELECT ${list} FROM ${table} ORDER BY ${spec.conflict}`).all();
-        const insert = tx.prepare(
-          `INSERT INTO ${table} (${spec.columns.join(", ")}) VALUES (${spec.columns.map(() => "?").join(", ")}) ON CONFLICT (${spec.conflict}) DO NOTHING`,
-        );
+        const insert = tx.prepare(`INSERT INTO ${table} (${spec.columns.join(", ")}) VALUES (${spec.columns.map(() => "?").join(", ")})`);
+        const stored = inUse
+          ? new Map((await tx.prepare(`SELECT ${spec.columns.join(", ")} FROM ${table}`).all()).map((r) => [String(r[spec.conflict]), r]))
+          : null;
+        let equal = 0;
+        let missing = 0;
+        let unequal = 0;
         const seen = new Set();
         let copied = 0;
         let converted = 0;
@@ -107,25 +119,37 @@ export async function copySqliteToPostgres(sqlitePath, db) {
           }
           // A session token is a secret, so a session is named by its user.
           const which = row.id !== undefined ? `id ${row.id}` : `user_id ${row.user_id}`;
+          if (stored) {
+            const there = stored.get(String(row[spec.conflict]));
+            if (!there) missing++;
+            else if (spec.columns.some((c) => !sameValue(there[c], row[c], table === "equipment" && c === "asset_id"))) {
+              unequal++;
+              if (different.length < 5) different.push(`Copy failed on ${table} ${which}: a different row already has this id.`);
+            } else equal++;
+            continue;
+          }
           let changes;
           try {
             ({ changes } = await insert.run(...spec.columns.map((c) => row[c])));
           } catch (err) {
             throw new Error(`Copy failed on ${table} ${which}: ${err.message}. Nothing was written.`, { cause: err });
           }
-          if (!changes) {
-            // The key was taken. Only the very same row (from an earlier run) is fine; any other row would silently
-            // attach this file's sessions and loans to someone else's id.
-            const there = await tx.prepare(`SELECT ${spec.columns.join(", ")} FROM ${table} WHERE ${spec.conflict} = ?`).get(row[spec.conflict]);
-            if (!there || spec.columns.some((c) => !sameValue(there[c], row[c], table === "equipment" && c === "asset_id"))) {
-              throw new Error(`Copy failed on ${table} ${which}: a different row already has this id. Nothing was written.`);
-            }
-          }
           copied += changes;
           if (duplicate) converted += changes;
         }
         counts[table] = { copied, skipped: rows.length - copied };
         if (table === "borrow_requests") counts[table].converted = converted;
+        report.push(`  ${table.padEnd(16)} ${equal} equal, ${missing} missing in the target, ${unequal} different`);
+        missingTotal += missing + unequal;
+      }
+      if (inUse && missingTotal) {
+        const lines = [
+          "The target database is already in use, so nothing was copied or changed. Rows of the SQLite file compared with it:",
+          ...report,
+          ...different,
+          "Copy into an empty database, or fix the rows named above. Nothing was written.",
+        ];
+        throw new Error(lines.join("\n"));
       }
       // Inserting explicit ids does not move the identity sequences; without this the next signup would collide.
       // Only after rows were copied: a rerun must not pull a sequence back below ids handed out since.
@@ -151,13 +175,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error(`SQLite file not found: ${path}`);
     process.exit(1);
   }
+  const databaseUrl = (process.env.DATABASE_URL ?? "").trim();
+  if (databaseUrl && !isPostgresUrl(databaseUrl)) {
+    console.error("DATABASE_URL is not a postgres:// or postgresql:// URL, so nothing was copied. Fix it or unset it for the local copy.");
+    process.exit(1);
+  }
   const folder = process.env.PGDATA_DIR || "data/pgdata";
   let db;
   try {
-    db = await openDb(process.env.DATABASE_URL || folder);
+    db = await openDb(databaseUrl || folder);
     const counts = await copySqliteToPostgres(path, db);
     // The URL holds the database password, so it is never printed.
-    console.log(`Copied ${path} into ${process.env.DATABASE_URL ? "DATABASE_URL" : folder}:`);
+    console.log(`Copied ${path} into ${databaseUrl ? "DATABASE_URL" : folder}:`);
     for (const [table, { copied, skipped, converted }] of Object.entries(counts)) {
       const note = converted ? `, ${converted} duplicate pending closed as cancelled` : "";
       console.log(`  ${table.padEnd(16)} copied ${copied}, skipped ${skipped}${note}`);

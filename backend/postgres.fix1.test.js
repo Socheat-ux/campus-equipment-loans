@@ -424,16 +424,22 @@ test("a taken id is fine only for the same row: changing any single column of an
   }
   assert.ok(checked >= 30, `only ${checked} columns were checked`);
 
-  const first = await copySqliteToPostgres(more, db);
-  assert.equal(total(first), 5, "only the five new rows go in");
-  const asset = await db.prepare("SELECT asset_id, available FROM equipment WHERE id = 3").get();
-  assert.deepEqual({ ...asset }, { asset_id: "CG-0003", available: 4 });
-  const after = await snapshot(db);
+  // A database in use never takes new rows: a row missing there may have been deleted on purpose (review round 2).
+  await assert.rejects(copySqliteToPostgres(more, db), /already in use[\s\S]*1 missing in the target/);
+  assert.equal(await snapshot(db), stable, "the refused copy writes nothing");
 
-  const again = await copySqliteToPostgres(more, db);
+  const fresh = await openDb(":memory:");
+  t.after(() => fresh.close());
+  const first = await copySqliteToPostgres(more, fresh);
+  assert.equal(total(first), 12, "an empty target takes every row");
+  const asset = await fresh.prepare("SELECT asset_id, available FROM equipment WHERE id = 3").get();
+  assert.deepEqual({ ...asset }, { asset_id: "CG-0003", available: 4 });
+  const after = await snapshot(fresh);
+
+  const again = await copySqliteToPostgres(more, fresh);
   assert.equal(total(again), 0, "a true second run, even with a filled asset id and shelf count, copies nothing");
   assert.equal(again.equipment.skipped, 3);
-  assert.equal(await snapshot(db), after);
+  assert.equal(await snapshot(fresh), after);
 });
 
 test("a mismatching session is named by its user and never by its token", async (t) => {

@@ -2,7 +2,7 @@
 // DATABASE_URL wins, then the path (a PGlite folder), then PGDATA_DIR or data/pgdata, like the server.
 // The password below is public, so this refuses to run with NODE_ENV=production, and with DATABASE_URL set unless --remote is given.
 import { pathToFileURL } from "node:url";
-import { openDb, withTransaction } from "./db.js";
+import { isPostgresUrl, openDb, withTransaction } from "./db.js";
 import { hashPassword } from "./auth.js";
 import { addDaysISO, displayName, todayISO } from "../shared/rules.js";
 import { notify } from "./notifications.js";
@@ -74,16 +74,27 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("Refusing to create test accounts with NODE_ENV=production.");
     process.exit(1);
   }
+  const databaseUrl = (process.env.DATABASE_URL ?? "").trim();
+  if (databaseUrl && !isPostgresUrl(databaseUrl)) {
+    console.error("DATABASE_URL is not a postgres:// or postgresql:// URL, so nothing was done. Fix it or unset it for the local copy.");
+    process.exit(1);
+  }
   // A .env that points at the live database must not receive accounts with a public password by accident.
-  if (process.env.DATABASE_URL && !args.includes("--remote")) {
+  if (databaseUrl && !args.includes("--remote")) {
     console.error("Refusing to create test accounts: DATABASE_URL is set, so this would write to that database. Pass --remote to do it anyway, or unset DATABASE_URL for the local copy.");
     process.exit(1);
   }
-  const db = await openDb(process.env.DATABASE_URL || path || process.env.PGDATA_DIR || "data/pgdata");
+  let db;
+  try {
+    db = await openDb(databaseUrl || path || process.env.PGDATA_DIR || "data/pgdata");
+  } catch (err) {
+    console.error(err.message || err.code || err); // e.g. the local folder is in use by dev:server
+    process.exit(1);
+  }
   await seedTestAccounts(db);
   await db.close();
   // The URL holds the database password, so it is never printed.
-  const where = process.env.DATABASE_URL ? "DATABASE_URL" : path || process.env.PGDATA_DIR || "data/pgdata";
+  const where = databaseUrl ? "DATABASE_URL" : path || process.env.PGDATA_DIR || "data/pgdata";
   console.log(`Test accounts in ${where}, password "${TEST_PASSWORD}" (sample equipment and notices added the first time):`);
   for (const { email, role } of TEST_ACCOUNTS) console.log(`  ${role.padEnd(8)} ${email}`);
 }

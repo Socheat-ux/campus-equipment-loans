@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import pg from "pg";
 
 // Postgres in production (Supabase, DATABASE_URL). Without a URL the same schema runs on PGlite, Postgres inside this
@@ -119,7 +120,8 @@ export function poolConfig(url, ca = process.env.DATABASE_CA) {
 
   let host = "";
   try {
-    host = new URL(connectionString).hostname.replace(/^\[(.+)\]$/, "$1").toLowerCase();
+    // pg-connection-string lets a host= parameter override the host in the URL, so that is the host pg connects to.
+    host = (params.get("host") || new URL(connectionString).hostname).replace(/^\[(.+)\]$/, "$1").toLowerCase();
   } catch {} // an unreadable URL counts as remote, so it gets TLS; pg reports the real problem
   let ssl = false; // a Postgres on this machine has no certificate worth checking
   if (!LOCAL_HOSTS.has(host)) {
@@ -130,18 +132,76 @@ export function poolConfig(url, ca = process.env.DATABASE_CA) {
   return { connectionString, ssl, max: 5, connectionTimeoutMillis: 10_000 };
 }
 
+// True for a postgres:// or postgresql:// URL, ignoring case and surrounding spaces.
+export const isPostgresUrl = (value) => /^postgres(ql)?:\/\//i.test(String(value ?? "").trim());
+
 let template; // the in-memory database every ":memory:" caller gets a copy of
 
+// A PGlite folder belongs to one process: two would each keep their own copy in memory and the last to close wins.
+// The lock file holds the pid of the owner. A pid that is no longer alive (crash, node --watch restart) is taken over.
+const heldLocks = new Set();
+let exitHook = false;
+function lockFolder(folder) {
+  const file = join(folder, "app.lock");
+  const remove = () => {
+    try {
+      unlinkSync(file);
+    } catch {} // already gone
+  };
+  for (;;) {
+    try {
+      writeFileSync(file, String(process.pid), { flag: "wx" });
+      break;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      let pid = NaN;
+      try {
+        pid = Number.parseInt(readFileSync(file, "utf8"), 10);
+      } catch {} // removed by its owner in the meantime
+      let alive = false;
+      try {
+        alive = pid > 0 && (process.kill(pid, 0), true);
+      } catch (killErr) {
+        alive = killErr.code === "EPERM"; // alive but owned by someone else
+      }
+      if (alive) {
+        throw new Error(`The local database folder ${folder} is in use by process ${pid}. Stop npm run dev:server (or the other process) first, then try again.`);
+      }
+      // shortcut: two processes taking over the same stale lock at the same moment can both succeed; use an OS lock if that ever matters
+      remove();
+    }
+  }
+  const release = () => {
+    heldLocks.delete(release);
+    remove();
+  };
+  heldLocks.add(release);
+  if (!exitHook) {
+    exitHook = true;
+    process.on("exit", () => heldLocks.forEach((held) => held()));
+  }
+  return release;
+}
+
 export async function openDb(url) {
-  if (url && /^postgres(ql)?:\/\//.test(url)) {
-    const pool = new pg.Pool(poolConfig(url));
+  if (typeof url === "string" && /^[a-z][a-z0-9+.-]*:\/\//i.test(url.trim()) && !isPostgresUrl(url)) {
+    // Never used as a folder name and never printed, because it may hold a password.
+    throw new Error("The database setting is a URL but not a postgres:// or postgresql:// one, so it was refused.");
+  }
+  if (isPostgresUrl(url)) {
+    // shortcut: no statement_timeout, a stuck lock wait holds a pool slot; add one once the Supabase pooler is confirmed to accept it
+    const pool = new pg.Pool(poolConfig(url.trim()));
     // An idle connection dropped by the server emits "error" on the pool; unhandled, it would crash the process.
     pool.on("error", (err) => console.error("Postgres connection error:", err.message));
     await pool.query(SCHEMA);
     const db = adapter((text, params) => pool.query(text, params), (sql) => pool.query(sql), false);
     db.transaction = async (fn) => {
       const client = await pool.connect();
-      let broken; // a client that could not roll back is in an unknown state, so the pool must drop it
+      let broken; // a client that lost its connection or could not roll back is in an unknown state, so the pool must drop it
+      // pool.query listens for errors on its own clients; a checked-out client needs a listener here or a dropped
+      // connection would crash the process instead of failing this request.
+      const onLost = (err) => (broken ??= err);
+      client.on?.("error", onLost);
       try {
         await client.query("BEGIN");
         const result = await fn(adapter((text, params) => client.query(text, params), (sql) => client.query(sql), true));
@@ -151,6 +211,7 @@ export async function openDb(url) {
         await client.query("ROLLBACK").catch((rollbackErr) => (broken = rollbackErr));
         throw err;
       } finally {
+        client.off?.("error", onLost);
         client.release(broken);
       }
     };
@@ -159,12 +220,19 @@ export async function openDb(url) {
   }
   // ":memory:" or no path: a fresh database for one test file. Any other value is a folder for local work.
   let lite;
+  let release = () => {};
   // Loaded here, not at the top, so a production install without dev dependencies starts with DATABASE_URL.
   const { PGlite } = await import("@electric-sql/pglite");
   if (url && url !== ":memory:") {
     mkdirSync(url, { recursive: true }); // PGlite does not create a missing data/ parent on a fresh checkout
-    lite = await PGlite.create(url);
-    await lite.exec(SCHEMA);
+    release = lockFolder(url);
+    try {
+      lite = await PGlite.create(url);
+      await lite.exec(SCHEMA);
+    } catch (err) {
+      release();
+      throw err;
+    }
   } else {
     // A fresh PGlite takes 2 to 3 s to start; a clone of one built per process takes well under 1 s.
     template ??= PGlite.create().then(async (base) => (await base.exec(SCHEMA), base));
@@ -173,7 +241,10 @@ export async function openDb(url) {
   const db = adapter((text, params) => lite.query(text, params), (sql) => lite.exec(sql), false);
   // PGlite runs one transaction at a time, which keeps parallel test requests in order like the real database's locks.
   db.transaction = (fn) => lite.transaction((tx) => fn(adapter((text, params) => tx.query(text, params), (sql) => tx.exec(sql), true)));
-  db.close = () => lite.close();
+  db.close = async () => {
+    await lite.close();
+    release();
+  };
   return db;
 }
 
@@ -181,10 +252,17 @@ export async function openDb(url) {
 // A nested call would deadlock on PGlite and commit on its own pool connection on pg, so it is refused.
 const activeTransaction = new AsyncLocalStorage();
 export async function withTransaction(db, fn) {
-  if (db.isTransaction || activeTransaction.getStore() === db) {
+  const outer = activeTransaction.getStore();
+  if (db.isTransaction || (outer?.db === db && outer.open)) {
     throw new Error("withTransaction cannot run inside another transaction; use the connection it gave you.");
   }
-  return activeTransaction.run(db, () => db.transaction(fn));
+  // open ends with the transaction, so a timer or listener created inside it may start its own transaction later.
+  const store = { db, open: true };
+  try {
+    return await activeTransaction.run(store, () => db.transaction(fn));
+  } finally {
+    store.open = false;
+  }
 }
 
 // Postgres integer ids stop at 2147483647; a bigger number in a URL or body is a row that cannot exist, not a crash.

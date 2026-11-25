@@ -23,7 +23,7 @@ export function usersRouter(db) {
   router.use(requireAdmin(db));
 
   router.get("/", async (req, res) => {
-    const users = (await db.prepare(`${selectColumns} ORDER BY lower(full_name), id`).all()).map(asUser);
+    const users = (await db.prepare(`${selectColumns} ORDER BY lower(full_name) COLLATE "C", id`).all()).map(asUser);
     res.json({ users });
   });
 

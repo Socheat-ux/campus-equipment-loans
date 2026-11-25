@@ -22,7 +22,7 @@ export function equipmentRouter(db) {
 
   // The catalogue is public so visitors can browse it before signing in.
   router.get("/", async (req, res) => {
-    const equipment = (await db.prepare(`${selectColumns} ORDER BY lower(name), id`).all()).map(asEquipment);
+    const equipment = (await db.prepare(`${selectColumns} ORDER BY lower(name) COLLATE "C", id`).all()).map(asEquipment);
     res.json({ equipment });
   });
 
