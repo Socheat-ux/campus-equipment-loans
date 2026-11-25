@@ -6,6 +6,8 @@ import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError, todayI
 
 // Approving after the start date would create a loan that is already late, so the admin rejects instead.
 const START_PASSED = "The start date has passed. Reject this request so the student can send a new one.";
+// A student promoted to admin keeps their requests; someone else has to decide on them.
+const OWN_REQUEST = "You cannot approve your own request. Another administrator must decide on it.";
 
 const STATUSES = ["pending", "approved", "rejected", "returned", "cancelled"];
 const SEARCH_MAX = 100;
@@ -46,6 +48,7 @@ const asAdminRequest = (row) => ({
 
 class ConflictError extends Error {}
 const conflict = (message) => Object.assign(new ConflictError(message), { status: 409 });
+const forbidden = (message) => Object.assign(new ConflictError(message), { status: 403 });
 
 // LIKE treats % and _ as wildcards, so a search for "50%" escapes them with "!".
 const contains = (text) => `%${text.replace(/[!%_]/g, (c) => `!${c}`)}%`;
@@ -149,7 +152,7 @@ export function adminBorrowRequestsRouter(db) {
       db.prepare("SELECT status, COUNT(*) AS n FROM borrow_requests GROUP BY status").all().map((row) => [row.status, row.n]),
     );
     const counts = Object.fromEntries(STATUSES.map((name) => [name, totals[name] ?? 0]));
-    return res.json({ requests: rows, counts, today: todayISO() });
+    return res.json({ requests: rows, counts, today: todayISO(), viewerId: req.user.id });
   });
 
   // The same filters as the list, so the file holds exactly the rows the admin is looking at.
@@ -168,6 +171,7 @@ export function adminBorrowRequestsRouter(db) {
     if (!Number.isInteger(id)) return res.status(404).json({ error: "Request not found." });
     const request = findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
+    if (request.user_id === req.user.id) return res.status(403).json({ error: OWN_REQUEST });
     if (request.status !== "pending") return res.status(409).json({ error: "Only pending requests can be approved." });
     if (request.borrow_date < todayISO()) return res.status(409).json({ error: START_PASSED });
     if (request.stock < 1) return res.status(409).json({ error: "This item is no longer available." });
@@ -176,6 +180,7 @@ export function adminBorrowRequestsRouter(db) {
       withTransaction(db, () => {
         const current = currentRequest(id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be approved.");
+        if (current.user_id === req.user.id) throw forbidden(OWN_REQUEST);
         if (current.borrow_date < todayISO()) throw conflict(START_PASSED);
         const equipment = db
           .prepare("SELECT id, name, location, available FROM equipment WHERE id = ?")
