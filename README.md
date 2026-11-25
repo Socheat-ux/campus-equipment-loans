@@ -25,7 +25,7 @@ Run the tests with `npm test`. For a single-process build, run `npm run build` a
 
 `npm run seed:test` creates one account per role in `DB_PATH` (default `data/app.db`; the script reads `.env` too), all with the password `testpass123`: `test.student@student.cadt.edu.kh` (student), `test.faculty@cadt.edu.kh` (faculty) and `test.admin@cadt.edu.kh` (administrator). Running it again resets them. It adds sample equipment only when the catalogue is empty and creates one marked overdue loan for the admin demo. It refuses to run when `NODE_ENV=production`, because the password is public.
 
-Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. The npm scripts read a `.env` file when there is one; variables already set in the shell or on the host win. Set `NODE_ENV=production` when deployed. Set `TRUST_PROXY=1` only behind a proxy you control.
+Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. The npm scripts read a `.env` file when there is one; variables already set in the shell or on the host win. Use `NODE_ENV=development` for local work (as in `.env.example`) and `NODE_ENV=production` on the deployed server, where it marks the session cookie Secure and stops `seed:test`. These variables are for the server only: `npm run build` ignores `.env`, so the site is always built with production React. Set `TRUST_PROXY=1` only behind a proxy you control.
 
 ## Folders
 
