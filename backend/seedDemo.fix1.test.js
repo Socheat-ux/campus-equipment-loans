@@ -192,7 +192,9 @@ test("users is locked first in the transaction, in SHARE ROW EXCLUSIVE mode, and
   const db = await seeded(t);
   const { wrapped, statements } = recording(db);
   await seedDemo(wrapped, PASSWORD, TODAY);
-  assert.match(statements[0], /^\s*LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE\s*$/i, "the lock is the first statement");
+  // Review round 2: a 5 s lock_timeout comes first, so the seed never waits forever behind the live site; the lock follows before any query.
+  assert.match(statements[0], /^\s*SET LOCAL lock_timeout = '5s'\s*$/i, "the lock timeout is set first");
+  assert.match(statements[1], /^\s*LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE\s*$/i, "the lock comes before any query");
   const truncate = statements.find((sql) => /^\s*TRUNCATE/i.test(sql));
   assert.ok(truncate);
   assert.ok(!/CASCADE/i.test(truncate), "nothing is emptied behind the list's back");

@@ -51,11 +51,11 @@ export const DEMO_REQUESTS = [
   { who: "heng.bopha", item: "Epson EB-X49 Projector", from: -9, status: "approved", by: "chan.sokha", purpose: "Workshop in room B204" },
   {
     who: "phan.rithy", item: "MacBook Air M2", from: 2, status: "rejected", by: "chan.sokha", purpose: "Design homework",
-    reason: "Both MacBooks are booked for the design workshop that week. Please choose a Dell laptop instead.",
+    reason: "The MacBooks are set aside for the design workshop that week. Please choose a Dell laptop instead.",
   },
   {
     who: "noun.sovann", item: "Sony ZV-E10 Camera", from: 1, status: "rejected", by: "pich.sopheap", purpose: "Podcast video recording",
-    reason: "Both cameras are reserved for the film festival that week. Please choose another date.",
+    reason: "The cameras are set aside for the film festival that week. Please choose another date.",
   },
   { who: "ly.sreymom", item: "TP-Link Archer AX55 Router", from: 2, status: "cancelled", purpose: "Networking lab practice" },
   {
@@ -90,6 +90,12 @@ export function demoPasswordError(password) {
   return weak ? `DEMO_PASSWORD: ${weak}` : null;
 }
 
+// 55P03: the 5 s lock wait ran out; 40P01: Postgres stopped the seed to let a live request finish. Both roll back fully.
+export function seedErrorMessage(err) {
+  if (err?.code === "55P03" || err?.code === "40P01") return "The site was busy, so nothing changed. Run it again in a moment.";
+  return err?.message || err?.code || String(err);
+}
+
 // Empties every table and loads the demo data in one transaction. Returns how many rows of each kind it wrote.
 // Every stored time is on an earlier day than today, so none is in the future whatever the hour.
 export async function seedDemo(db, password, today = todayISO()) {
@@ -100,6 +106,8 @@ export async function seedDemo(db, password, today = todayISO()) {
   const known = [...demoEmails, ...TEST_ACCOUNTS.map((a) => a.email)];
   return withTransaction(db, async (tx) => {
     // A signup that commits between the check below and the TRUNCATE would be deleted unseen, so inserts into users wait here.
+    // Give up after 5 s instead of waiting forever behind a busy live database while the site's requests queue behind the seed.
+    await tx.exec("SET LOCAL lock_timeout = '5s'");
     await tx.exec("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE");
     const blocking = (await tx.prepare("SELECT email FROM users WHERE NOT (email = ANY(?)) ORDER BY id").all(known)).map((u) => u.email);
     // A real person may have signed up with a demo name, so a demo email only counts as ours when DEMO_PASSWORD opens it.
@@ -212,7 +220,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log("Every account below uses DEMO_PASSWORD from .env:");
     for (const { email, role } of DEMO_ACCOUNTS) console.log(`  ${role.padEnd(8)} ${email}`);
   } catch (err) {
-    console.error(err.message || err.code || err);
+    console.error(seedErrorMessage(err));
     process.exitCode = 1;
   } finally {
     await db?.close();
