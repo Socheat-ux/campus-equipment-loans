@@ -14,6 +14,7 @@
     "start": "node --env-file-if-exists=.env backend/index.js",
     "test": "node --test backend/*.test.js",
     "seed:test": "node --env-file-if-exists=.env backend/seed-dev.js",
+    "seed:demo": "node --env-file-if-exists=.env backend/seed-demo.js",
     "copy-db": "node --env-file-if-exists=.env backend/copy-sqlite.js"
   },
   "dependencies": {
