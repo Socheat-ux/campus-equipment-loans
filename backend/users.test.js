@@ -20,8 +20,9 @@ async function start(t, app) {
 }
 
 async function seeded(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const call = await start(t, createApp(db));
+  t.after(() => db.close());
   const signup = async (email) => {
     const res = await call("POST", "/api/auth/signup", undefined, { email, password: GOOD });
     assert.equal(res.status, 201, email);
@@ -31,7 +32,7 @@ async function seeded(t) {
   const student = await signup("sok.dara@student.cadt.edu.kh");
   const faculty = await signup("keo.bopha@cadt.edu.kh");
   const admin = await signup("chan.nita@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.user.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.user.id);
   return { db, call, student, faculty, admin };
 }
 
@@ -94,13 +95,13 @@ test("bad roles, missing users and non-JSON writes are refused; other roles cann
   assert.equal((await call("PATCH", "/api/users/9999/role", admin.cookie, { role: "admin" })).status, 404);
   assert.equal((await call("PATCH", "/api/users/not-a-number/role", admin.cookie, { role: "admin" })).status, 404);
   assert.equal((await call("PATCH", path, admin.cookie)).status, 415, "a request with no JSON body");
-  assert.equal(db.prepare("SELECT role FROM users WHERE id = ?").get(student.user.id).role, "student");
+  assert.equal((await db.prepare("SELECT role FROM users WHERE id = ?").get(student.user.id)).role, "student");
 
   for (const who of [undefined, student.cookie]) {
     const res = await call("PATCH", path, who, { role: "admin" });
     assert.ok([401, 403].includes(res.status));
   }
-  assert.equal(db.prepare("SELECT role FROM users WHERE id = ?").get(student.user.id).role, "student");
+  assert.equal((await db.prepare("SELECT role FROM users WHERE id = ?").get(student.user.id)).role, "student");
   assert.equal((await call("POST", "/api/users", admin.cookie, { role: "admin" })).status, 404, "no such route");
 });
 
@@ -111,15 +112,15 @@ test("the last administrator cannot be demoted, but a second one can", async (t)
   const blocked = await set(admin.user.id, "student");
   assert.equal(blocked.status, 409);
   assert.deepEqual(await blocked.json(), { error: "At least one administrator must remain." });
-  assert.equal(db.prepare("SELECT role FROM users WHERE id = ?").get(admin.user.id).role, "admin");
+  assert.equal((await db.prepare("SELECT role FROM users WHERE id = ?").get(admin.user.id)).role, "admin");
 
   assert.equal((await set(faculty.user.id, "admin")).status, 200, "a second administrator is allowed");
   const nowSecond = await call("PATCH", `/api/users/${admin.user.id}/role`, admin.cookie, { role: "faculty" });
   assert.equal(nowSecond.status, 200, "demoting one of two administrators is allowed");
-  assert.equal(db.prepare("SELECT role FROM users WHERE id = ?").get(faculty.user.id).role, "admin");
+  assert.equal((await db.prepare("SELECT role FROM users WHERE id = ?").get(faculty.user.id)).role, "admin");
 
   // The original administrator is now faculty, so the remaining administrator uses their own session.
   const last = await call("PATCH", `/api/users/${faculty.user.id}/role`, faculty.cookie, { role: "student" });
   assert.equal(last.status, 409, "the remaining administrator is protected");
-  assert.equal(db.prepare("SELECT role FROM users WHERE id = ?").get(faculty.user.id).role, "admin");
+  assert.equal((await db.prepare("SELECT role FROM users WHERE id = ?").get(faculty.user.id)).role, "admin");
 });

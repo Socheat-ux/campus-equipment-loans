@@ -8,10 +8,13 @@ import { addDaysISO, BORROW_MAX_DAYS, todayISO } from "../shared/rules.js";
 const GOOD = "goodpass1";
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(() => {
+    server.close();
+    return db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, body, cookie) =>
     fetch(`${root}${path}`, {
@@ -31,13 +34,13 @@ async function start(t) {
     const { user } = await res.json();
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id, fullName: user.fullName };
   };
-  const makeAdmin = (user) => {
-    db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+  const makeAdmin = async (user) => {
+    await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
     return user;
   };
-  const addEquipment = (name, quantity) =>
+  const addEquipment = async (name, quantity) =>
     Number(
-      db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Laptop', ?)").run(name, quantity)
+      (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Laptop', ?) RETURNING id").run(name, quantity))
         .lastInsertRowid,
     );
   return { db, call, signup, makeAdmin, addEquipment };
@@ -47,7 +50,7 @@ test("a student can submit a request, which is saved pending and creates a notif
   const { db, call, signup, makeAdmin, addEquipment } = await start(t);
   const student = await signup("sok.dara");
   const admin = await makeAdmin(await signup("chan.nita"));
-  const equipmentId = addEquipment("Dell Latitude", 2);
+  const equipmentId = await addEquipment("Dell Latitude", 2);
   const borrowDate = addDaysISO(todayISO(), 1);
 
   const res = await call(
@@ -74,20 +77,20 @@ test("a student can submit a request, which is saved pending and creates a notif
     returnedAt: null,
   });
 
-  const row = db.prepare("SELECT * FROM borrow_requests WHERE id = ?").get(request.id);
+  const row = await db.prepare("SELECT * FROM borrow_requests WHERE id = ?").get(request.id);
   assert.equal(row.status, "pending");
   assert.equal(row.user_id, student.id);
   assert.equal(row.return_date, addDaysISO(borrowDate, BORROW_MAX_DAYS));
   // Stock is untouched until staff approval.
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available, 2);
 
-  const notice = db
+  const notice = await db
     .prepare("SELECT type, message FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
     .get(student.id);
   assert.equal(notice.type, "request_submitted");
   assert.equal(notice.message, "Your request for Dell Latitude was submitted and is awaiting approval.");
 
-  const adminNotice = db
+  const adminNotice = await db
     .prepare("SELECT type, message FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
     .get(admin.id);
   assert.equal(adminNotice.type, "request_submitted");
@@ -108,7 +111,7 @@ test("every administrator is notified when a request is submitted", async (t) =>
   const firstAdmin = await makeAdmin(await signup("chan.nita"));
   const secondAdmin = await makeAdmin(await signup("meas.sophea"));
   const borrower = await signup("keo.bopha");
-  const equipmentId = addEquipment("Epson Projector", 1);
+  const equipmentId = await addEquipment("Epson Projector", 1);
 
   const res = await call(
     "POST",
@@ -119,9 +122,9 @@ test("every administrator is notified when a request is submitted", async (t) =>
   assert.equal(res.status, 201);
 
   for (const admin of [firstAdmin, secondAdmin]) {
-    const notices = db
+    const notices = (await db
       .prepare("SELECT type, message FROM notifications WHERE user_id = ?")
-      .all(admin.id)
+      .all(admin.id))
       .map((row) => ({ type: row.type, message: row.message }));
     assert.deepEqual(notices, [
       {
@@ -130,13 +133,13 @@ test("every administrator is notified when a request is submitted", async (t) =>
       },
     ]);
   }
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?").get(borrower.id).n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ?").get(borrower.id)).n, 0);
 });
 
 test("an unavailable item is rejected and nothing is saved", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");
-  const equipmentId = addEquipment("Checked out camera", 0);
+  const equipmentId = await addEquipment("Checked out camera", 0);
 
   const res = await call(
     "POST",
@@ -149,24 +152,24 @@ test("an unavailable item is rejected and nothing is saved", async (t) => {
     error: "This item is no longer available.",
     fields: { equipmentId: "This item is no longer available." },
   });
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM borrow_requests").get()).n, 0);
 });
 
 test("a past borrow date is rejected", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");
-  const equipmentId = addEquipment("Projector", 1);
+  const equipmentId = await addEquipment("Projector", 1);
 
   const res = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate: "2000-01-01" }, student.cookie);
   assert.equal(res.status, 400);
   const body = await res.json();
   assert.equal(body.fields.borrowDate, "Borrow date cannot be in the past.");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM borrow_requests").get()).n, 0);
 });
 
 test("submitting without a session is rejected", async (t) => {
   const { call, addEquipment } = await start(t);
-  const equipmentId = addEquipment("Projector", 1);
+  const equipmentId = await addEquipment("Projector", 1);
 
   const res = await call("POST", "/api/borrow-requests", {
     equipmentId,
@@ -180,7 +183,7 @@ test("a borrower reads only their own request, and cannot choose the return date
   const { call, signup, addEquipment } = await start(t);
   const owner = await signup("sok.dara");
   const other = await signup("keo.bopha");
-  const equipmentId = addEquipment("Microscope", 1);
+  const equipmentId = await addEquipment("Microscope", 1);
   const borrowDate = addDaysISO(todayISO(), 2);
 
   const created = await call(
@@ -204,7 +207,7 @@ test("a borrower reads only their own request, and cannot choose the return date
 test("a borrower can cancel their own pending request, and it is notified without changing stock", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");
-  const equipmentId = addEquipment("Canon DSLR", 2);
+  const equipmentId = await addEquipment("Canon DSLR", 2);
   const borrowDate = addDaysISO(todayISO(), 1);
 
   const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate, purpose: "Photos" }, student.cookie);
@@ -216,10 +219,10 @@ test("a borrower can cancel their own pending request, and it is notified withou
   const body = await res.json();
   assert.equal(body.request.status, "cancelled");
   assert.equal(body.request.id, request.id);
-  assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "cancelled");
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
+  assert.equal((await db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id)).status, "cancelled");
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available, 2);
 
-  const notice = db
+  const notice = await db
     .prepare("SELECT type, message FROM notifications WHERE user_id = ? AND request_id = ? ORDER BY id DESC LIMIT 1")
     .get(student.id, request.id);
   assert.equal(notice.type, "request_cancelled");
@@ -230,7 +233,7 @@ test("a borrower cannot cancel someone else's request or a non-pending request",
   const { db, call, signup, addEquipment } = await start(t);
   const owner = await signup("sok.dara");
   const other = await signup("keo.bopha");
-  const equipmentId = addEquipment("Projector", 1);
+  const equipmentId = await addEquipment("Projector", 1);
   const borrowDate = addDaysISO(todayISO(), 1);
 
   const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate }, owner.cookie);
@@ -241,7 +244,7 @@ test("a borrower cannot cancel someone else's request or a non-pending request",
   assert.deepEqual(await someoneElse.json(), { error: "Request not found." });
 
   for (const status of ["approved", "rejected", "returned", "cancelled"]) {
-    db.prepare("UPDATE borrow_requests SET status = ? WHERE id = ?").run(status, request.id);
+    await db.prepare("UPDATE borrow_requests SET status = ? WHERE id = ?").run(status, request.id);
     const res = await call("POST", `/api/borrow-requests/${request.id}/cancel`, {}, owner.cookie);
     assert.equal(res.status, 409, status);
     assert.deepEqual(await res.json(), { error: "Only pending requests can be cancelled." });
@@ -251,7 +254,7 @@ test("a borrower cannot cancel someone else's request or a non-pending request",
 test("cancelling requires a signed-in borrower and a JSON body", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");
-  const equipmentId = addEquipment("Tripod", 1);
+  const equipmentId = await addEquipment("Tripod", 1);
   const created = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate: addDaysISO(todayISO(), 1) }, student.cookie);
   const { request } = await created.json();
 
@@ -262,13 +265,13 @@ test("cancelling requires a signed-in borrower and a JSON body", async (t) => {
   const wrongType = await call("POST", `/api/borrow-requests/${request.id}/cancel`, undefined, student.cookie);
   assert.equal(wrongType.status, 415);
   assert.deepEqual(await wrongType.json(), { error: "JSON only." });
-  assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "pending");
+  assert.equal((await db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id)).status, "pending");
 });
 
 test("bad fields and a non-JSON body are refused before saving anything", async (t) => {
   const { db, call, signup, addEquipment } = await start(t);
   const student = await signup("sok.dara");
-  const equipmentId = addEquipment("Projector", 1);
+  const equipmentId = await addEquipment("Projector", 1);
 
   const res = await call(
     "POST",
@@ -282,5 +285,5 @@ test("bad fields and a non-JSON body are refused before saving anything", async 
   const wrongType = await call("POST", "/api/borrow-requests", undefined, student.cookie);
   assert.equal(wrongType.status, 415);
   assert.deepEqual(await wrongType.json(), { error: "JSON only." });
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM borrow_requests").get()).n, 0);
 });

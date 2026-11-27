@@ -13,10 +13,13 @@ const GOOD = "goodpass1";
 const OWN = "You cannot approve your own request. Another administrator must decide on it.";
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, cookie, body) => {
     const res = await fetch(`${root}${path}`, {
@@ -41,10 +44,12 @@ async function start(t) {
 test("a student promoted to admin gets 403 on their own request, nothing changes, and another admin can approve it", async (t) => {
   const { db, call, signup } = await start(t);
   const first = await signup("ly.sophea@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(first.id); // the first admin is set up by hand, as in production
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(first.id); // the first admin is set up by hand, as in production
   const student = await signup("meas.rithy@student.cadt.edu.kh");
   const second = await signup("kem.vuthy@cadt.edu.kh");
-  const itemId = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson projector', 'Projector', 2)").run().lastInsertRowid);
+  const itemId = Number(
+    (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson projector', 'Projector', 2) RETURNING id").run()).lastInsertRowid,
+  );
 
   const made = await call("POST", "/api/borrow-requests", student.cookie, { equipmentId: itemId, borrowDate: addDaysISO(todayISO(), 1), purpose: "Club event" });
   assert.equal(made.status, 201);
@@ -54,14 +59,14 @@ test("a student promoted to admin gets 403 on their own request, nothing changes
   for (const user of [student, second]) {
     assert.equal((await call("PATCH", `/api/users/${user.id}/role`, first.cookie, { role: "admin" })).status, 200);
   }
-  const noticesBefore = db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n;
+  const noticesBefore = (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
 
   const own = await call("POST", `/api/admin/borrow-requests/${requestId}/approve`, student.cookie);
   assert.equal(own.status, 403);
   assert.deepEqual(own.body, { error: OWN });
-  assert.deepEqual({ ...db.prepare("SELECT status, decided_by FROM borrow_requests WHERE id = ?").get(requestId) }, { status: "pending", decided_by: null });
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(itemId).available, 2);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, noticesBefore, "a refused approval sends no notices");
+  assert.deepEqual({ ...(await db.prepare("SELECT status, decided_by FROM borrow_requests WHERE id = ?").get(requestId)) }, { status: "pending", decided_by: null });
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(itemId)).available, 2);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, noticesBefore, "a refused approval sends no notices");
 
   const list = await call("GET", "/api/admin/borrow-requests", student.cookie);
   assert.equal(list.body.viewerId, student.id, "the page learns who is looking");
@@ -70,7 +75,7 @@ test("a student promoted to admin gets 403 on their own request, nothing changes
   assert.equal(other.status, 200);
   assert.equal(other.body.request.status, "approved");
   assert.equal(other.body.request.decidedBy, second.id);
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(itemId).available, 1);
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(itemId)).available, 1);
 });
 
 // The admin page is bundled with a tiny fake React (the pattern from approvalStartDate.test.js) and its tree is inspected.

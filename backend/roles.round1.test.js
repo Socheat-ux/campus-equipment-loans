@@ -254,26 +254,28 @@ async function startServer(t, app) {
 }
 
 test("a role change takes effect on the very next request, with the same session cookie", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   const call = await startServer(t, createApp(db));
   const res = await call("POST", "/api/auth/signup", undefined, { email: "chan.nita@cadt.edu.kh", password: GOOD });
   const cookie = res.headers.get("set-cookie").split(";")[0];
   const item = { name: "Tripod", category: "Camera", quantity: 2 };
-  const setRole = (role) => db.prepare("UPDATE users SET role = ? WHERE email = 'chan.nita@cadt.edu.kh'").run(role);
+  const setRole = async (role) => db.prepare("UPDATE users SET role = ? WHERE email = 'chan.nita@cadt.edu.kh'").run(role);
 
   assert.equal((await call("POST", "/api/equipment", cookie, item)).status, 403, "faculty first");
-  setRole("admin");
+  await setRole("admin");
   assert.equal((await call("POST", "/api/equipment", cookie, item)).status, 201, "promoted");
   assert.equal((await (await call("GET", "/api/auth/me", cookie)).json()).user.role, "admin");
-  setRole("faculty");
+  await setRole("faculty");
   assert.equal((await call("PUT", "/api/equipment/1", cookie, item)).status, 403, "demoted mid-session");
   assert.equal((await (await call("GET", "/api/auth/me", cookie)).json()).user.role, "faculty");
-  db.prepare("DELETE FROM users").run();
+  await db.prepare("DELETE FROM users").run();
   assert.equal((await call("POST", "/api/equipment", cookie, item)).status, 401, "deleted account");
 });
 
 test("admin-only API answers 401/403 for every write verb and odd path, before reading the body", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   const call = await startServer(t, createApp(db));
   const res = await call("POST", "/api/auth/signup", undefined, { email: "sok.dara@student.cadt.edu.kh", password: GOOD });
   const student = res.headers.get("set-cookie").split(";")[0];
@@ -282,13 +284,18 @@ test("admin-only API answers 401/403 for every write verb and odd path, before r
     assert.equal((await call(method, path, undefined, { name: "x" })).status, 401, `guest ${method} ${path}`);
     assert.equal((await call(method, path, student, { name: "x" })).status, 403, `student ${method} ${path}`);
   }
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM equipment").get().n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM equipment").get()).n, 0);
 });
 
-test("ROLES matches the users table CHECK constraint exactly", () => {
-  const db = openDb(":memory:");
-  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'users'").get().sql;
-  const inCheck = /role\s+TEXT[^,]*CHECK\s*\(\s*role\s+IN\s*\(([^)]*)\)/i.exec(sql)[1].match(/'([^']+)'/g).map((s) => s.slice(1, -1));
+test("ROLES matches the users table CHECK constraint exactly", async (t) => {
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
+  const rows = await db
+    .prepare("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'users'::regclass AND contype = 'c'")
+    .all();
+  const checks = rows.map((r) => r.def).filter((def) => /\brole\b/.test(def));
+  assert.equal(checks.length, 1, "exactly one CHECK on users mentions role");
+  const inCheck = checks[0].match(/'([^']+)'/g).map((s) => s.slice(1, -1));
   assert.deepEqual([...inCheck].sort(), [...ROLES].sort());
 });
 
@@ -301,17 +308,19 @@ test("DEFECT: the route-count check misses an /api route added directly on the a
   assert.ok(fn, "countRouterRoutes moved: import it here instead");
   const countRouterRoutes = new Function(`${fn}; return countRouterRoutes;`)();
 
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   const app = createApp(db);
-  const before = countRouterRoutes(app._router.stack);
+  const before = countRouterRoutes(app.router.stack);
   // Same place a teammate would write it in backend/app.js: above the /api not-found handler.
   app.post("/api/admin/reset", (req, res) => res.json({ reset: true }));
-  const stack = app._router.stack;
+  const stack = app.router.stack;
   const added = stack.pop();
-  const notFound = stack.findIndex((l) => !l.route && !l.handle.stack && l.regexp.test("/api/x") && !l.regexp.test("/other"));
+  const hits = (l, p) => l.matchers.some((match) => match(p));
+  const notFound = stack.findIndex((l) => !l.route && !l.handle.stack && hits(l, "/api/x") && !hits(l, "/other"));
   stack.splice(notFound, 0, added);
 
   const call = await startServer(t, app);
   assert.equal((await call("POST", "/api/admin/reset")).status, 200, "the new route is live and open to guests");
-  assert.equal(countRouterRoutes(app._router.stack), before + 1, "the count check should notice the new API route");
+  assert.equal(countRouterRoutes(app.router.stack), before + 1, "the count check should notice the new API route");
 });

@@ -9,10 +9,13 @@ const GOOD = "goodpass1";
 const student = (name) => `${name}@student.cadt.edu.kh`;
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, { body, cookie, type = "application/json", raw } = {}) =>
     fetch(`${root}${path}`, {
@@ -52,18 +55,18 @@ test("notify refuses bad input and stores a reason only on rejections", async (t
     { userId: id, type: "request_rejected", message: "No", reason: "  \n " },
     { userId: id, type: "request_rejected", message: "No", reason: "r".repeat(REASON_MAX + 1) },
   ];
-  const inTx = (fn) => () => withTransaction(db, fn);
-  for (const input of bad) assert.throws(inTx(() => notify(db, input)), TypeError, JSON.stringify(input).slice(0, 80));
-  assert.throws(inTx(() => notify(db)), TypeError);
+  const inTx = (fn) => withTransaction(db, fn);
+  for (const input of bad) await assert.rejects(inTx((tx) => notify(tx, input)), TypeError, JSON.stringify(input).slice(0, 80));
+  await assert.rejects(inTx((tx) => notify(tx)), TypeError);
   // A user that does not exist breaks the foreign key.
-  assert.throws(inTx(() => notify(db, { userId: 9999, type: "request_approved", message: "x" })));
+  await assert.rejects(inTx((tx) => notify(tx, { userId: 9999, type: "request_approved", message: "x" })), { code: "23503" });
 
-  withTransaction(db, () => {
-    notify(db, { userId: id, type: "request_approved", message: " Approved ", reason: "ignored" });
-    notify(db, { userId: id, type: "request_rejected", message: "Rejected", reason: "  Item is under repair.  " });
-    notify(db, { userId: id, type: "request_cancelled", message: " Cancelled " });
+  await withTransaction(db, async (tx) => {
+    await notify(tx, { userId: id, type: "request_approved", message: " Approved ", reason: "ignored" });
+    await notify(tx, { userId: id, type: "request_rejected", message: "Rejected", reason: "  Item is under repair.  " });
+    await notify(tx, { userId: id, type: "request_cancelled", message: " Cancelled " });
   });
-  const rows = db.prepare("SELECT type, message, reason FROM notifications ORDER BY id").all();
+  const rows = await db.prepare("SELECT type, message, reason FROM notifications ORDER BY id").all();
   assert.deepEqual(rows.map((r) => ({ ...r })), [
     { type: "request_approved", message: "Approved", reason: null },
     { type: "request_rejected", message: "Rejected", reason: "Item is under repair." },
@@ -83,13 +86,13 @@ test("users see only their own notifications, newest first, with ISO times", asy
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("keo.bopha");
-  withTransaction(db, () => {
-    notify(db, { userId: a.id, type: "request_approved", message: "A first" });
-    notify(db, { userId: b.id, type: "request_rejected", message: "B only", reason: "Broken" });
-    notify(db, { userId: a.id, type: "request_rejected", message: "A second", reason: "Out of stock" });
+  await withTransaction(db, async (tx) => {
+    await notify(tx, { userId: a.id, type: "request_approved", message: "A first" });
+    await notify(tx, { userId: b.id, type: "request_rejected", message: "B only", reason: "Broken" });
+    await notify(tx, { userId: a.id, type: "request_rejected", message: "A second", reason: "Out of stock" });
   });
   // Same timestamp on purpose: the id breaks the tie, so the later row still comes first.
-  db.prepare("UPDATE notifications SET created_at = '2026-11-12T01:00:00.000Z'").run();
+  await db.prepare("UPDATE notifications SET created_at = '2026-11-12T01:00:00.000Z'").run();
 
   const mine = await list(call, a.cookie);
   assert.deepEqual(mine.notifications.map((n) => n.message), ["A second", "A first"]);
@@ -100,7 +103,7 @@ test("users see only their own notifications, newest first, with ISO times", asy
   const theirs = await list(call, b.cookie);
   assert.deepEqual(theirs.notifications.map((n) => n.message), ["B only"]);
 
-  withTransaction(db, () => notify(db, { userId: a.id, type: "request_approved", message: "A third" }));
+  await withTransaction(db, (tx) => notify(tx, { userId: a.id, type: "request_approved", message: "A third" }));
   const fresh = await list(call, a.cookie);
   assert.equal(fresh.notifications[0].message, "A third");
   assert.match(fresh.notifications[0].createdAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
@@ -110,8 +113,8 @@ test("users see only their own notifications, newest first, with ISO times", asy
 test("the list stops at the limit but the unread count covers everything", async (t) => {
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
-  withTransaction(db, () => {
-    for (let i = 0; i < LIST_LIMIT + 5; i++) notify(db, { userId: a.id, type: "request_approved", message: `n${i}` });
+  await withTransaction(db, async (tx) => {
+    for (let i = 0; i < LIST_LIMIT + 5; i++) await notify(tx, { userId: a.id, type: "request_approved", message: `n${i}` });
   });
   const body = await list(call, a.cookie);
   assert.equal(body.notifications.length, LIST_LIMIT);
@@ -123,10 +126,10 @@ test("marking read touches only the caller's own rows", async (t) => {
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("keo.bopha");
-  const [a1, a2, b1] = withTransaction(db, () => [
-    notify(db, { userId: a.id, type: "request_approved", message: "a1" }),
-    notify(db, { userId: a.id, type: "request_approved", message: "a2" }),
-    notify(db, { userId: b.id, type: "request_approved", message: "b1" }),
+  const [a1, a2, b1] = await withTransaction(db, async (tx) => [
+    await notify(tx, { userId: a.id, type: "request_approved", message: "a1" }),
+    await notify(tx, { userId: a.id, type: "request_approved", message: "a2" }),
+    await notify(tx, { userId: b.id, type: "request_approved", message: "b1" }),
   ]);
 
   // A tries to mark B's row: nothing happens to B.
@@ -149,10 +152,10 @@ test("per-notification and read-all endpoints keep one user's rows private", asy
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
   const b = await signup("keo.bopha");
-  const [a1, a2, b1] = withTransaction(db, () => [
-    notify(db, { userId: a.id, type: "request_approved", message: "a1" }),
-    notify(db, { userId: a.id, type: "request_approved", message: "a2" }),
-    notify(db, { userId: b.id, type: "request_approved", message: "b1" }),
+  const [a1, a2, b1] = await withTransaction(db, async (tx) => [
+    await notify(tx, { userId: a.id, type: "request_approved", message: "a1" }),
+    await notify(tx, { userId: a.id, type: "request_approved", message: "a2" }),
+    await notify(tx, { userId: b.id, type: "request_approved", message: "b1" }),
   ]);
 
   let res = await call("POST", `/api/notifications/${a1}/read`, { cookie: a.cookie, body: {} });
@@ -176,7 +179,7 @@ test("per-notification and read-all endpoints keep one user's rows private", asy
 test("mark-read refuses anything that is not a clean JSON object", async (t) => {
   const { db, call, signup } = await start(t);
   const a = await signup("sok.dara");
-  withTransaction(db, () => notify(db, { userId: a.id, type: "request_approved", message: "keep me unread" }));
+  await withTransaction(db, (tx) => notify(tx, { userId: a.id, type: "request_approved", message: "keep me unread" }));
   const post = (opts) => call("POST", "/api/notifications/read", { cookie: a.cookie, ...opts });
 
   assert.equal((await post({ raw: "ids=1", type: "application/x-www-form-urlencoded" })).status, 415);
@@ -191,71 +194,76 @@ test("mark-read refuses anything that is not a clean JSON object", async (t) => 
 test("deleting a user deletes their notifications", async (t) => {
   const { db, signup } = await start(t);
   const a = await signup("sok.dara");
-  withTransaction(db, () => notify(db, { userId: a.id, type: "request_approved", message: "bye" }));
-  db.prepare("DELETE FROM users WHERE id = ?").run(a.id);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, 0);
+  await withTransaction(db, (tx) => notify(tx, { userId: a.id, type: "request_approved", message: "bye" }));
+  await db.prepare("DELETE FROM users WHERE id = ?").run(a.id);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, 0);
 });
 
 test("withTransaction keeps a status change and its notification together", async (t) => {
   const { db, signup } = await start(t);
   const a = await signup("sok.dara");
-  db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 2)").run();
-  const available = () => db.prepare("SELECT available FROM equipment").get().available;
-  const count = () => db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n;
+  await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 2)").run();
+  const available = async () => (await db.prepare("SELECT available FROM equipment").get()).available;
+  const count = async () => (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
 
   // notify fails (no reason), so the update before it must be undone too.
-  assert.throws(() =>
-    withTransaction(db, () => {
-      db.prepare("UPDATE equipment SET available = 1").run();
-      notify(db, { userId: a.id, type: "request_rejected", message: "No" });
+  await assert.rejects(
+    withTransaction(db, async (tx) => {
+      await tx.prepare("UPDATE equipment SET available = 1").run();
+      await notify(tx, { userId: a.id, type: "request_rejected", message: "No" });
     }),
+    TypeError,
   );
-  assert.equal(available(), 2);
-  assert.equal(count(), 0);
+  assert.equal(await available(), 2);
+  assert.equal(await count(), 0);
 
   // The connection is not left inside a transaction: the next one commits normally.
-  const id = withTransaction(db, () => {
-    db.prepare("UPDATE equipment SET available = 1").run();
-    return notify(db, { userId: a.id, type: "request_approved", message: "Yes" });
+  const id = await withTransaction(db, async (tx) => {
+    await tx.prepare("UPDATE equipment SET available = 1").run();
+    return notify(tx, { userId: a.id, type: "request_approved", message: "Yes" });
   });
   assert.ok(id > 0);
-  assert.equal(available(), 1);
-  assert.equal(count(), 1);
+  assert.equal(await available(), 1);
+  assert.equal(await count(), 1);
 
-  // An async function is refused, and its synchronous part is rolled back.
-  assert.throws(
-    () =>
-      withTransaction(db, async () => {
-        db.prepare("UPDATE equipment SET available = 0").run();
-      }),
-    /synchronous/,
+  // Postgres callbacks are async. One that fails after an await is rolled back too, and the next one still works.
+  await assert.rejects(
+    withTransaction(db, async (tx) => {
+      await tx.prepare("UPDATE equipment SET available = 0").run();
+      await new Promise((resolve) => setImmediate(resolve));
+      throw new Error("late failure");
+    }),
+    /late failure/,
   );
-  assert.equal(available(), 1);
-  assert.equal(withTransaction(db, () => "ok"), "ok");
+  assert.equal(await available(), 1);
+  assert.equal(await withTransaction(db, async () => "ok"), "ok");
 });
 
 test("an admin bell shows earlier borrow requests in request-date order, once", async (t) => {
   const { db, call, signup } = await start(t);
   const student = await signup("sok.dara");
   const admin = await signup("admin.user");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
 
-  const equipmentId = Number(
-    db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson Projector', 'Projector', 2)").run()
-      .lastInsertRowid,
-  );
+  // Two items with the same name: the database allows one pending request per user and item.
+  const addProjector = async () =>
+    Number(
+      (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson Projector', 'Projector', 2) RETURNING id").run())
+        .lastInsertRowid,
+    );
+  const [firstItem, secondItem] = [await addProjector(), await addProjector()];
   const olderAt = "2026-11-01T08:00:00.000Z";
   const newerAt = "2026-11-10T09:30:00.000Z";
-  db.prepare(
+  await db.prepare(
     `INSERT INTO borrow_requests
        (equipment_id, user_id, borrow_date, return_date, purpose, status, created_at)
      VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(equipmentId, student.id, "2026-11-20", "2026-11-21", "class", olderAt);
-  db.prepare(
+  ).run(firstItem, student.id, "2026-11-20", "2026-11-21", "class", olderAt);
+  await db.prepare(
     `INSERT INTO borrow_requests
        (equipment_id, user_id, borrow_date, return_date, purpose, status, created_at)
      VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-  ).run(equipmentId, student.id, "2026-11-25", "2026-11-26", "club", newerAt);
+  ).run(secondItem, student.id, "2026-11-25", "2026-11-26", "club", newerAt);
 
   const first = await list(call, admin.cookie);
   assert.deepEqual(
@@ -269,5 +277,5 @@ test("an admin bell shows earlier borrow requests in request-date order, once", 
 
   const second = await list(call, admin.cookie);
   assert.equal(second.notifications.length, 2);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?").get(admin.id).n, 2);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ?").get(admin.id)).n, 2);
 });

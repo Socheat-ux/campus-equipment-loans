@@ -6,10 +6,13 @@ import { createApp } from "./app.js";
 import { addDaysISO, todayISO } from "../shared/rules.js";
 
 test("admin overdue list includes only approved loans past their return date", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, body, cookie) => fetch(`${root}${path}`, {
     method,
@@ -23,14 +26,14 @@ test("admin overdue list includes only approved loans past their return date", a
   };
   const admin = await signup("chan.nita@cadt.edu.kh");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
-  const equipmentId = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Demo Laptop', 'Laptop', 1)").run().lastInsertRowid);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  const equipmentId = Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Demo Laptop', 'Laptop', 1) RETURNING id").run()).lastInsertRowid);
   const today = todayISO();
   const insertLoan = db.prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, ?)");
-  insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "approved");
-  insertLoan.run(equipmentId, student.id, addDaysISO(today, -8), today, "approved");
-  insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "pending");
-  insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "returned");
+  await insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "approved");
+  await insertLoan.run(equipmentId, student.id, addDaysISO(today, -8), today, "approved");
+  await insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "pending");
+  await insertLoan.run(equipmentId, student.id, addDaysISO(today, -9), addDaysISO(today, -2), "returned");
 
   const guest = await call("GET", "/api/admin/overdue");
   assert.equal(guest.status, 401);

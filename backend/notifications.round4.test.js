@@ -17,10 +17,13 @@ const realFetch = globalThis.fetch; // the UI harness swaps fetch, so the test c
 const realGlobals = { setInterval, clearInterval, fetch: realFetch, document: globalThis.document, window: globalThis.window };
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, { body, cookie } = {}) =>
     realFetch(`${root}${path}`, {
@@ -34,14 +37,15 @@ async function start(t) {
     const { user } = await res.json();
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
   };
-  const unreadInDb = (userId) => db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId).n;
+  const unreadInDb = async (userId) =>
+    (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = ? AND read_at IS NULL").get(userId)).n;
   return { db, root, call, signup, unreadInDb };
 }
 
 // notify needs a transaction; callers inside withTransaction already have one.
 const approve = (db, userId, message = "ok") => {
-  const run = () => notify(db, { userId, type: "request_approved", message });
-  return db.isTransaction ? run() : withTransaction(db, run);
+  const run = (conn) => notify(conn, { userId, type: "request_approved", message });
+  return db.isTransaction ? run(db) : withTransaction(db, run);
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -254,29 +258,29 @@ for (const seed of [31, 20261112, 777, 2026, 9001]) {
     const pick = rng(seed);
     const idOf = new Map(); // message tag -> notification id
     let tag = 0;
-    const arrive = (n) => {
+    const arrive = async (n) => {
       for (let k = 0; k < n; k++) {
         const label = `[[${++tag}]]`;
-        idOf.set(label, approve(db, a.id, `notice ${label}`));
+        idOf.set(label, await approve(db, a.id, `notice ${label}`));
       }
     };
-    const dbUnread = () => db.prepare("SELECT id FROM notifications WHERE user_id = ? AND read_at IS NULL ORDER BY id DESC").all(a.id).map((r) => r.id);
-    const newest50 = () => db.prepare("SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 50").all(a.id).map((r) => r.id);
+    const dbUnread = async () => (await db.prepare("SELECT id FROM notifications WHERE user_id = ? AND read_at IS NULL ORDER BY id DESC").all(a.id)).map((r) => r.id);
+    const newest50 = async () => (await db.prepare("SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 50").all(a.id)).map((r) => r.id);
     const listed = (bell) => bell.items().map((li) => idOf.get(/\[\[\d+\]\]/.exec(textOf(li))[0]));
 
     let offline = false;
     const hit = { all: 0, ids: 0, reload: 0 }; // proof the walk reached each mark-read path
-    arrive(pick(8));
+    await arrive(pick(8));
     const bell = await mountBell(t, { root, cookie: a.cookie, userId: a.id, offline: () => offline });
 
     for (let step = 0; step < 150; step++) {
       const where = `seed ${seed} step ${step}`;
       const roll = pick(100);
       if (roll < 25) {
-        arrive(pick(5) === 0 ? 20 + pick(40) : 1 + pick(3)); // now and then a burst past the 50-item list
+        await arrive(pick(5) === 0 ? 20 + pick(40) : 1 + pick(3)); // now and then a burst past the 50-item list
       } else if (roll < 45) {
         await bell.poll();
-        if (!offline) assert.equal(badge(bell), dbUnread().length, `${where}: after a good poll the badge is the server's count`);
+        if (!offline) assert.equal(badge(bell), (await dbUnread()).length, `${where}: after a good poll the badge is the server's count`);
       } else if (roll < 75) {
         if (isOpen(bell)) {
           // Close three ways: a tap or mouse click on the bell (pointerdown lands inside, then click), outside, or the keyboard.
@@ -297,14 +301,14 @@ for (const seed of [31, 20261112, 777, 2026, 9001]) {
           continue;
         }
         const seen = Math.max(0, ...bell.R.hooks[0].v.map((item) => item.id)); // the list the bell holds, shown or not
-        const unreadBefore = new Set(dbUnread());
+        const unreadBefore = new Set(await dbUnread());
         const sentBefore = bell.sent.length;
         await bell.click();
         assert.ok(isOpen(bell), `${where}: opened`);
         const traffic = bell.sent.slice(sentBefore);
         assert.ok(traffic.filter((r) => r.method === "POST").length <= 1, `${where}: one mark-read per open`);
         assert.ok(traffic.filter((r) => r.method === "GET").length <= 1, `${where}: at most one reload per open`);
-        const unreadAfter = new Set(dbUnread());
+        const unreadAfter = new Set(await dbUnread());
         for (const id of unreadBefore) {
           if (id > seen) assert.ok(unreadAfter.has(id), `${where}: notice ${id} was marked read before the bell ever listed it`);
         }
@@ -314,13 +318,13 @@ for (const seed of [31, 20261112, 777, 2026, 9001]) {
           if (traffic.some((r) => r.method === "GET")) hit.reload++;
           assert.equal(badge(bell), unreadAfter.size, `${where}: after a mark-read the badge is the server's count`);
           const shown = new Set(listed(bell));
-          for (const id of newest50()) {
+          for (const id of await newest50()) {
             if (unreadAfter.has(id)) assert.ok(shown.has(id), `${where}: unread notice ${id} is counted but not listed`);
           }
         }
       } else if (roll < 88) {
         // Another tab marks everything up to some id it saw.
-        const ids = newest50();
+        const ids = await newest50();
         if (ids.length) {
           const res = await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { all: true, upTo: ids[pick(ids.length)] } });
           assert.equal(res.status, 200);
@@ -342,7 +346,7 @@ test("gap: unread notices older than the list can still be cleared by opening th
   const { db, root, call, signup } = await start(t);
   const a = await signup("sok.dara");
   const ids = [];
-  for (let k = 1; k <= 55; k++) ids.push(approve(db, a.id, `n${k}`));
+  for (let k = 1; k <= 55; k++) ids.push(await approve(db, a.id, `n${k}`));
   const newest = ids.slice(-50);
   const res = await call("POST", "/api/notifications/read", { cookie: a.cookie, body: { ids: newest } });
   assert.equal(res.status, 200);

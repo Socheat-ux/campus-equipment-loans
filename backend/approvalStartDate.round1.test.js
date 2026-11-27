@@ -22,10 +22,13 @@ function useZone(t, zone) {
 }
 
 async function start(t, { stock = 2 } = {}) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const signup = async (email) => {
     const res = await fetch(`${root}/api/auth/signup`, {
@@ -37,10 +40,10 @@ async function start(t, { stock = 2 } = {}) {
     return { id: (await res.json()).user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const admin = await signup("chea.vanna@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
   const student = await signup("keo.dara@student.cadt.edu.kh");
   const equipmentId = Number(
-    db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Canon camera', 'Camera', ?)").run(stock).lastInsertRowid,
+    (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Canon camera', 'Camera', ?) RETURNING id").run(stock)).lastInsertRowid,
   );
   const call = async (method, path, body, cookie) => {
     const res = await fetch(`${root}${path}`, {
@@ -50,38 +53,52 @@ async function start(t, { stock = 2 } = {}) {
     });
     return { status: res.status, body: await res.json() };
   };
-  const insert = (borrowDate, status = "pending") =>
-    Number(
-      db
-        .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, date(?, '+7 days'), ?)")
-        .run(equipmentId, student.id, borrowDate, borrowDate, status).lastInsertRowid,
+  // The database allows one pending request per student and item, so each inserted request gets its own student.
+  let extraStudents = 0;
+  const insert = async (borrowDate, status = "pending") => {
+    const owner = Number(
+      (
+        await db
+          .prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES (?, 'Extra Student', 'student', 'x') RETURNING id")
+          .run(`extra.student${++extraStudents}@student.cadt.edu.kh`)
+      ).lastInsertRowid,
     );
+    return Number(
+      (
+        await db
+          .prepare(
+            "INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, (?::date + 7)::text, ?) RETURNING id",
+          )
+          .run(equipmentId, owner, borrowDate, borrowDate, status)
+      ).lastInsertRowid,
+    );
+  };
   const approve = (id) => call("POST", `/api/admin/borrow-requests/${id}/approve`, {}, admin.cookie);
-  const available = () => db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available;
+  const available = async () => (await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available;
   return { db, call, insert, approve, available, admin, student, equipmentId };
 }
 
 test("with no stock left, a stale request still gets the start-date message, not the stock one", async (t) => {
   const h = await start(t, { stock: 0 });
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-10T05:00:00Z") });
-  const id = h.insert("2026-11-01");
+  const id = await h.insert("2026-11-01");
   const res = await h.approve(id);
   assert.equal(res.status, 409);
   assert.deepEqual(res.body, { error: PASSED });
-  assert.equal(h.db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(id).status, "pending");
-  assert.equal(h.available(), 0);
+  assert.equal((await h.db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(id)).status, "pending");
+  assert.equal(await h.available(), 0);
 });
 
 test("the year turns at midnight in Phnom Penh on a UTC+14 host and on a UTC-11 host", async (t) => {
   useZone(t, "Pacific/Kiritimati"); // already Jan 1 here while Cambodia is still on Dec 31
   const h = await start(t);
-  const lastDay = h.insert("2025-12-31");
-  const lastDayLate = h.insert("2025-12-31");
-  const newYear = h.insert("2026-01-01");
+  const lastDay = await h.insert("2025-12-31");
+  const lastDayLate = await h.insert("2025-12-31");
+  const newYear = await h.insert("2026-01-01");
 
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2025-12-31T16:59:59.999Z") });
   assert.equal((await h.approve(lastDay)).status, 200);
-  assert.equal(h.db.prepare("SELECT return_date FROM borrow_requests WHERE id = ?").get(lastDay).return_date, "2026-01-07");
+  assert.equal((await h.db.prepare("SELECT return_date FROM borrow_requests WHERE id = ?").get(lastDay)).return_date, "2026-01-07");
 
   process.env.TZ = "Pacific/Pago_Pago"; // still Dec 31 morning here while Cambodia is on Jan 1
   t.mock.timers.setTime(new Date("2025-12-31T17:00:00Z").getTime());
@@ -91,7 +108,7 @@ test("the year turns at midnight in Phnom Penh on a UTC+14 host and on a UTC-11 
   const ok = await h.approve(newYear);
   assert.equal(ok.status, 200);
   assert.equal(ok.body.request.returnDate, "2026-01-08");
-  assert.equal(h.available(), 0);
+  assert.equal(await h.available(), 0);
 });
 
 test("on a Los Angeles host the student form and the approval agree on which day it is", async (t) => {
@@ -119,9 +136,9 @@ test("on a Los Angeles host the student form and the approval agree on which day
 test("overdue and due-soon use the Cambodia day on a UTC host", async (t) => {
   useZone(t, "UTC");
   const h = await start(t, { stock: 5 });
-  const late = h.insert("2026-11-09", "approved"); // due 2026-11-16
-  const dueToday = h.insert("2026-11-10", "approved"); // due 2026-11-17
-  const dueTomorrow = h.insert("2026-11-11", "approved"); // due 2026-11-18
+  const late = await h.insert("2026-11-09", "approved"); // due 2026-11-16
+  const dueToday = await h.insert("2026-11-10", "approved"); // due 2026-11-17
+  const dueTomorrow = await h.insert("2026-11-11", "approved"); // due 2026-11-18
   // 00:30 on Nov 17 in Phnom Penh, still 17:30 on Nov 16 in UTC.
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-16T17:30:00Z") });
 
@@ -131,8 +148,8 @@ test("overdue and due-soon use the Cambodia day on a UTC host", async (t) => {
   assert.deepEqual(overdue.body.overdue.map((row) => [row.id, row.daysOverdue]), [[late, 1]]);
   assert.ok(!overdue.body.overdue.some((row) => row.id === dueToday));
 
-  assert.equal(processDueReminders(h.db), 1);
-  const notice = h.db.prepare("SELECT request_id FROM notifications WHERE type = 'due_soon'").all();
+  assert.equal(await processDueReminders(h.db), 1);
+  const notice = await h.db.prepare("SELECT request_id FROM notifications WHERE type = 'due_soon'").all();
   assert.deepEqual(notice.map((n) => n.request_id), [dueTomorrow]);
 });
 

@@ -8,10 +8,13 @@ import { addDaysISO, todayISO } from "../shared/rules.js";
 const GOOD = "goodpass1";
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = (method, path, body, cookie) =>
     fetch(`${root}${path}`, {
@@ -26,14 +29,13 @@ async function start(t) {
     const res = await call("POST", "/api/auth/signup", { email, password: GOOD });
     assert.equal(res.status, 201);
     const { user } = await res.json();
-    if (role === "admin") db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
+    if (role === "admin") await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id);
     return { cookie: res.headers.get("set-cookie").split(";")[0], id: user.id };
   };
-  const addEquipment = (name, quantity) =>
+  const addEquipment = async (name, quantity) =>
     Number(
-      db
-        .prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Laptop', ?)")
-        .run(name, quantity).lastInsertRowid,
+      (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Laptop', ?) RETURNING id").run(name, quantity))
+        .lastInsertRowid,
     );
   const createRequest = async (student, equipmentId, name = "Dell Latitude", purpose = "Final year project") => {
     const borrowDate = addDaysISO(todayISO(), 1);
@@ -54,10 +56,10 @@ test("an admin sees pending requests with requester, item and stock details plus
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
   await db.prepare("UPDATE users SET full_name = 'Sok Dara' WHERE id = ?").run(student.id);
-  const equipmentId = addEquipment("Dell Latitude", 3);
+  const equipmentId = await addEquipment("Dell Latitude", 3);
   const request = await createRequest(student, equipmentId);
 
-  const columns = db.prepare("PRAGMA table_info(borrow_requests)").all().map((col) => col.name);
+  const columns = (await db.prepare("SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'borrow_requests'").all()).map((col) => col.name);
   for (const name of ["decided_by", "decided_at", "decision_reason"]) assert.ok(columns.includes(name), name);
 
   const res = await call("GET", "/api/admin/borrow-requests", undefined, admin.cookie);
@@ -101,7 +103,7 @@ test("approval records the decision, reserves one item and notifies the student"
   const { db, call, signup, addEquipment, createRequest } = await start(t);
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  const equipmentId = addEquipment("Dell Latitude", 2);
+  const equipmentId = await addEquipment("Dell Latitude", 2);
   const request = await createRequest(student, equipmentId);
 
   const res = await call("POST", `/api/admin/borrow-requests/${request.id}/approve`, {}, admin.cookie);
@@ -114,9 +116,9 @@ test("approval records the decision, reserves one item and notifies the student"
   assert.equal(decided.returnDate, request.returnDate);
   assert.equal(decided.returnedAt, null);
   assert.equal(decided.stock, 1);
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 1);
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available, 1);
 
-  const notice = db
+  const notice = await db
     .prepare("SELECT type, message, reason FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
     .get(student.id);
   assert.equal(notice.type, "request_approved");
@@ -137,16 +139,16 @@ test("approval refuses a request when the item has no stock left", async (t) => 
   const { db, call, signup, addEquipment, createRequest } = await start(t);
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  const equipmentId = addEquipment("Checked out camera", 1);
+  const equipmentId = await addEquipment("Checked out camera", 1);
   const request = await createRequest(student, equipmentId, "Checked out camera");
-  db.prepare("UPDATE equipment SET available = 0 WHERE id = ?").run(equipmentId);
+  await db.prepare("UPDATE equipment SET available = 0 WHERE id = ?").run(equipmentId);
 
   const res = await call("POST", `/api/admin/borrow-requests/${request.id}/approve`, {}, admin.cookie);
   assert.equal(res.status, 409);
   assert.deepEqual(await res.json(), { error: "This item is no longer available." });
-  assert.equal(db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id).status, "pending");
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 0);
-  const notices = db.prepare("SELECT type FROM notifications WHERE user_id = ?").all(student.id);
+  assert.equal((await db.prepare("SELECT status FROM borrow_requests WHERE id = ?").get(request.id)).status, "pending");
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available, 0);
+  const notices = await db.prepare("SELECT type FROM notifications WHERE user_id = ?").all(student.id);
   assert.equal(notices.length, 1);
   assert.equal(notices[0].type, "request_submitted");
 });
@@ -155,7 +157,7 @@ test("rejection saves the reason, leaves stock alone and notifies the student", 
   const { db, call, signup, addEquipment, createRequest } = await start(t);
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  const equipmentId = addEquipment("Dell Latitude", 2);
+  const equipmentId = await addEquipment("Dell Latitude", 2);
   const request = await createRequest(student, equipmentId);
 
   const res = await call("POST", `/api/admin/borrow-requests/${request.id}/reject`, { reason: "  Schedule conflict  " }, admin.cookie);
@@ -166,9 +168,9 @@ test("rejection saves the reason, leaves stock alone and notifies the student", 
   assert.equal(decided.decidedBy, admin.id);
   assert.match(decided.decidedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(decided.stock, 2);
-  assert.equal(db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available, 2);
+  assert.equal((await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available, 2);
 
-  const notice = db
+  const notice = await db
     .prepare("SELECT type, message, reason FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1")
     .get(student.id);
   assert.equal(notice.type, "request_rejected");
@@ -184,7 +186,7 @@ test("a rejection needs a short reason", async (t) => {
   const { call, signup, addEquipment, createRequest } = await start(t);
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  const equipmentId = addEquipment("Dell Latitude", 2);
+  const equipmentId = await addEquipment("Dell Latitude", 2);
   const request = await createRequest(student, equipmentId);
 
   const missing = await call("POST", `/api/admin/borrow-requests/${request.id}/reject`, {}, admin.cookie);
@@ -202,7 +204,7 @@ test("students and guests cannot reach the admin borrow-request endpoints", asyn
   const { call, signup, addEquipment, createRequest } = await start(t);
   const admin = await signup("chan.nita@cadt.edu.kh", "admin");
   const student = await signup("sok.dara@student.cadt.edu.kh");
-  const equipmentId = addEquipment("Dell Latitude", 2);
+  const equipmentId = await addEquipment("Dell Latitude", 2);
   const request = await createRequest(student, equipmentId);
   const paths = [
     ["GET", "/api/admin/borrow-requests", undefined],

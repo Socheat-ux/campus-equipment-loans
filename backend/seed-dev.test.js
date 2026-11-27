@@ -13,12 +13,13 @@ import { seedTestAccounts, SAMPLE_EQUIPMENT, SAMPLE_NOTIFICATIONS, TEST_ACCOUNTS
 const script = fileURLToPath(new URL("./seed-dev.js", import.meta.url));
 
 test("test accounts can log in with their role, and seeding twice keeps one row each", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   await seedTestAccounts(db);
   await seedTestAccounts(db);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users").get().n, TEST_ACCOUNTS.length);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM equipment").get().n, SAMPLE_EQUIPMENT.length);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n, SAMPLE_NOTIFICATIONS.length);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM users").get()).n, TEST_ACCOUNTS.length);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM equipment").get()).n, SAMPLE_EQUIPMENT.length);
+  assert.equal((await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n, SAMPLE_NOTIFICATIONS.length);
 
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -37,8 +38,10 @@ test("test accounts can log in with their role, and seeding twice keeps one row 
 test("the script refuses production and creates no database file", () => {
   const dir = mkdtempSync(join(tmpdir(), "seed-dev-"));
   try {
-    const path = join(dir, "app.db");
-    const run = spawnSync(process.execPath, [script, path], { env: { ...process.env, NODE_ENV: "production" }, encoding: "utf8" });
+    const path = join(dir, "pgdata");
+    const env = { ...process.env, NODE_ENV: "production" };
+    delete env.DATABASE_URL; // the refusal must come before any database is opened, and never near a real one
+    const run = spawnSync(process.execPath, [script, path], { env, encoding: "utf8" });
     assert.notEqual(run.status, 0);
     assert.match(run.stderr, /Refusing/);
     assert.equal(existsSync(path), false);

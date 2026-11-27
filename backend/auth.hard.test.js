@@ -10,10 +10,13 @@ const GOOD = "goodpass1";
 
 // Each test gets its own app, db and limiter, so tests cannot affect each other.
 async function start(t, options) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db, options).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const base = `http://127.0.0.1:${server.address().port}/api/auth`;
   const post = (path, body, headers = {}) =>
     fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
@@ -93,9 +96,9 @@ test("logout ends only the session that sent it", async (t) => {
 test("an expired session row is not accepted", async (t) => {
   const { db, post, get } = await start(t);
   await post("/signup", { email: "old.timer@student.cadt.edu.kh", password: GOOD });
-  db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 1, ?)").run(sha256("expiredtok"), Date.now() - 1000);
+  await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 1, ?)").run(sha256("expiredtok"), Date.now() - 1000);
   assert.equal((await get("/me", "sid=expiredtok")).status, 401);
-  db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 1, ?)").run(sha256("livetok"), Date.now() + 60000);
+  await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 1, ?)").run(sha256("livetok"), Date.now() + 60000);
   assert.equal((await get("/me", "sid=livetok")).status, 200); // proves the row above was rejected for its date, not for some other reason
 });
 
@@ -157,15 +160,15 @@ test("nothing secret is stored in clear and the hash carries its parameters", as
   const email = "at.rest@student.cadt.edu.kh";
   const password = "plainSecret42";
   const token = cookieOf(await post("/signup", { email, password })).slice("sid=".length);
-  const { password_hash: hash } = db.prepare("SELECT password_hash FROM users").get();
+  const { password_hash: hash } = await db.prepare("SELECT password_hash FROM users").get();
   assert.match(hash, /^scrypt\$32768\$8\$3\$[0-9a-f]{32}\$[0-9a-f]{128}$/);
   assert.ok(!hash.includes(password));
-  const { token_hash } = db.prepare("SELECT token_hash FROM sessions").get();
+  const { token_hash } = await db.prepare("SELECT token_hash FROM sessions").get();
   assert.equal(token_hash, sha256(token));
   assert.notEqual(token_hash, token);
   // same password, new account: the salt must differ, so the hashes differ
   await post("/signup", { email: "at.rest2@student.cadt.edu.kh", password });
-  const [h1, h2] = db.prepare("SELECT password_hash FROM users ORDER BY id").all().map((r) => r.password_hash);
+  const [h1, h2] = (await db.prepare("SELECT password_hash FROM users ORDER BY id").all()).map((r) => r.password_hash);
   assert.notEqual(h1, h2);
 });
 

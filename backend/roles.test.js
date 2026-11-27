@@ -49,10 +49,11 @@ function countRouterRoutes(stack, nested = false) {
       const paths = [].concat(layer.route.path).filter((p) => nested || (typeof p === "string" && p.startsWith("/api")));
       return sum + paths.length * Object.keys(layer.route.methods).length;
     }
-    const inner = layer.handle.stack ?? layer.handle._router?.stack; // a router, or an app with its own router
+    const inner = layer.handle.stack ?? layer.handle.router?.stack; // a router, or an app with its own router
     if (inner) return sum + countRouterRoutes(inner, true);
-    // Express writes app.use("/api/x", fn) as the regexp ^\/api\/x...; the 404 handler's is ^\/api\/?... instead.
-    const mounted = !layer.regexp.fast_slash && (nested || /^\^\\\/api\\\/(?!\?)/.test(layer.regexp.source));
+    // Express 5 keeps no source path, only matchers: a layer mounted under /api matches neither "/api" itself (the 404 handler does) nor a path outside /api.
+    const hits = (path) => layer.matchers.some((match) => match(path));
+    const mounted = !layer.slash && (nested || (!hits("/api") && !hits("/not-api")));
     return sum + (mounted ? 1 : 0);
   }, 0);
 }
@@ -71,9 +72,10 @@ async function start(t, app) {
 }
 
 test("every API route is listed, and each one lets in exactly the roles it should", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   const app = createApp(db);
-  assert.equal(countRouterRoutes(app._router.stack), ROUTES.length, "an API route was added or removed: update ROUTES");
+  assert.equal(countRouterRoutes(app.router.stack), ROUTES.length, "an API route was added or removed: update ROUTES");
 
   const call = await start(t, app);
   const signup = async (email) => {
@@ -92,12 +94,13 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
     faculty: await signup(emails.faculty),
     admin: await signup(emails.admin),
   };
-  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
-  db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 1)").run();
+  await db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
+  await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Projector', 'Projector', 1)").run();
+  // Postgres allows one pending request per user and item, so the row that blocks the equipment delete is a finished one.
   // The detail route answers 404 without a row of the caller's own, which would look like a misspelt route below.
-  const seedRequest = (who, status = "pending") => {
-    db.prepare("DELETE FROM borrow_requests WHERE id = 1").run();
-    db
+  const seedRequest = async (who, status = "pending") => {
+    await db.prepare("DELETE FROM borrow_requests WHERE id = 1").run();
+    await db
       .prepare(
         `INSERT INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
          VALUES (1, 1, (SELECT id FROM users WHERE role = ?), '2026-01-01', '2026-01-08', ?)`,
@@ -105,38 +108,39 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
       .run(who, status);
   };
   const seeds = {
-    "/api/equipment/1": (who) => {
+    "/api/equipment/1": async (who) => {
       if (who !== "admin") return;
-      db.prepare(
-        `INSERT OR IGNORE INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
-         VALUES (2, 1, (SELECT id FROM users WHERE role = 'student'), '2026-01-01', '2026-01-08', 'pending')`,
+      await db.prepare(
+        `INSERT INTO borrow_requests (id, equipment_id, user_id, borrow_date, return_date, status)
+         VALUES (2, 1, (SELECT id FROM users WHERE role = 'student'), '2026-01-01', '2026-01-08', 'returned')
+         ON CONFLICT DO NOTHING`,
       ).run();
     },
-    "/api/borrow-requests/1": (who) => {
+    "/api/borrow-requests/1": async (who) => {
       if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
-      seedRequest(who);
+      await seedRequest(who);
     },
-    "/api/borrow-requests/1/cancel": (who) => {
+    "/api/borrow-requests/1/cancel": async (who) => {
       if (who !== "student" && who !== "faculty") return; // guests and administrators never reach the handler
-      seedRequest(who);
+      await seedRequest(who);
     },
-    "/api/admin/borrow-requests/1/approve": (who) => {
-      if (who === "admin") seedRequest("student");
+    "/api/admin/borrow-requests/1/approve": async (who) => {
+      if (who === "admin") await seedRequest("student");
     },
-    "/api/admin/borrow-requests/1/reject": (who) => {
-      if (who === "admin") seedRequest("student");
+    "/api/admin/borrow-requests/1/reject": async (who) => {
+      if (who === "admin") await seedRequest("student");
     },
-    "/api/admin/borrow-requests/1/return": (who) => {
-      if (who === "admin") seedRequest("student", "approved");
+    "/api/admin/borrow-requests/1/return": async (who) => {
+      if (who === "admin") await seedRequest("student", "approved");
     },
-    "/api/admin/borrow-requests/1/cancel": (who) => {
-      if (who === "admin") seedRequest("student", "approved");
+    "/api/admin/borrow-requests/1/cancel": async (who) => {
+      if (who === "admin") await seedRequest("student", "approved");
     },
-    "/api/notifications/1/read": (who) => {
+    "/api/notifications/1/read": async (who) => {
       const email = emails[who];
       if (!email) return;
-      db.prepare("DELETE FROM notifications WHERE id = 1").run();
-      db
+      await db.prepare("DELETE FROM notifications WHERE id = 1").run();
+      await db
         .prepare(
           `INSERT INTO notifications (id, user_id, type, message)
            VALUES (1, (SELECT id FROM users WHERE email = ?), 'request_approved', 'Seed')`,
@@ -154,7 +158,7 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
   for (const [method, path, rule] of ROUTES) {
     if (path === "/api/auth/logout") continue; // logging out would end the sessions the other checks use
     for (const [who, cookie] of Object.entries(cookies)) {
-      seeds[path]?.(who);
+      await seeds[path]?.(who);
       const { status } = await call(method, path, cookie);
       const want = expected[rule][who];
       const label = `${method} ${path} as ${who} gave ${status}`;
@@ -166,7 +170,8 @@ test("every API route is listed, and each one lets in exactly the roles it shoul
 });
 
 test("requireRole refuses misspelt roles at startup and lets several roles share a route", async (t) => {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
+  t.after(() => db.close());
   for (const bad of [[], ["Admin"], ["admin", "staff"], [undefined]]) {
     assert.throws(() => requireRole(db, ...bad), /requireRole needs/, JSON.stringify(bad));
   }
@@ -182,7 +187,7 @@ test("requireRole refuses misspelt roles at startup and lets several roles share
     (await call("POST", "/api/auth/signup", undefined, { email, password: GOOD })).headers.get("set-cookie").split(";")[0];
   const student = await signup("sok.dara@student.cadt.edu.kh");
   const admin = await signup("chan.nita@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
+  await db.prepare("UPDATE users SET role = 'admin' WHERE email = 'chan.nita@cadt.edu.kh'").run();
 
   const asStudent = await call("GET", "/people", student);
   assert.equal(asStudent.status, 200);

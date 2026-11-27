@@ -24,10 +24,13 @@ function useZone(t, zone) {
 
 // The admin signs up on the real clock, so the mocked times below (all earlier) still fall inside the session.
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(async () => {
+    server.close();
+    await db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const signup = await fetch(`${root}/api/auth/signup`, {
     method: "POST",
@@ -36,21 +39,35 @@ async function start(t) {
   });
   assert.equal(signup.status, 201);
   const adminId = (await signup.json()).user.id;
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId);
   const cookie = signup.headers.get("set-cookie").split(";")[0];
 
   const studentId = Number(
-    db
-      .prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('meas.rithy@student.cadt.edu.kh', 'Meas Rithy', 'student', 'x')")
-      .run().lastInsertRowid,
+    (
+      await db
+        .prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('meas.rithy@student.cadt.edu.kh', 'Meas Rithy', 'student', 'x') RETURNING id")
+        .run()
+    ).lastInsertRowid,
   );
-  const equipmentId = Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson projector', 'Projector', 2)").run().lastInsertRowid);
+  const otherStudentId = Number(
+    (
+      await db
+        .prepare("INSERT INTO users (email, full_name, role, password_hash) VALUES ('chea.vanna@student.cadt.edu.kh', 'Chea Vanna', 'student', 'x') RETURNING id")
+        .run()
+    ).lastInsertRowid,
+  );
+  const equipmentId = Number(
+    (await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES ('Epson projector', 'Projector', 2) RETURNING id").run()).lastInsertRowid,
+  );
   // Requests are written straight to the table: the student form would refuse a past borrow date.
-  const pending = (borrowDate) =>
+  // The database allows one pending request per student and item, so a second request comes from the other student.
+  const pending = async (borrowDate, other = false) =>
     Number(
-      db
-        .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date) VALUES (?, ?, ?, date(?, '+7 days'))")
-        .run(equipmentId, studentId, borrowDate, borrowDate).lastInsertRowid,
+      (
+        await db
+          .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date) VALUES (?, ?, ?, (?::date + 7)::text) RETURNING id")
+          .run(equipmentId, other ? otherStudentId : studentId, borrowDate, borrowDate)
+      ).lastInsertRowid,
     );
   const post = async (path, body = {}) => {
     const res = await fetch(`${root}/api/admin/borrow-requests${path}`, {
@@ -60,42 +77,42 @@ async function start(t) {
     });
     return { status: res.status, body: await res.json() };
   };
-  const row = (id) => ({ ...db.prepare("SELECT status, return_date, decided_by FROM borrow_requests WHERE id = ?").get(id) });
-  const available = () => db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId).available;
-  const notices = () => db.prepare("SELECT COUNT(*) AS n FROM notifications").get().n;
+  const row = async (id) => ({ ...(await db.prepare("SELECT status, return_date, decided_by FROM borrow_requests WHERE id = ?").get(id)) });
+  const available = async () => (await db.prepare("SELECT available FROM equipment WHERE id = ?").get(equipmentId)).available;
+  const notices = async () => (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications").get()).n;
   return { pending, post, row, available, notices };
 }
 
 test("a request that started yesterday is refused and nothing changes", async (t) => {
   const h = await start(t);
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-10T05:00:00Z") }); // noon in Phnom Penh
-  const id = h.pending("2026-11-09");
+  const id = await h.pending("2026-11-09");
 
   const refused = await h.post(`/${id}/approve`);
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.body, { error: PASSED });
-  assert.deepEqual(h.row(id), { status: "pending", return_date: "2026-11-16", decided_by: null });
-  assert.equal(h.available(), 2);
-  assert.equal(h.notices(), 0);
+  assert.deepEqual(await h.row(id), { status: "pending", return_date: "2026-11-16", decided_by: null });
+  assert.equal(await h.available(), 2);
+  assert.equal(await h.notices(), 0);
 });
 
 test("a request that starts today is still approved, with the due date counted from the start date", async (t) => {
   const h = await start(t);
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-10T05:00:00Z") });
-  const id = h.pending("2026-11-10");
+  const id = await h.pending("2026-11-10");
 
   const approved = await h.post(`/${id}/approve`);
   assert.equal(approved.status, 200);
   assert.equal(approved.body.request.status, "approved");
   assert.equal(approved.body.request.returnDate, "2026-11-17");
-  assert.equal(h.available(), 1);
+  assert.equal(await h.available(), 1);
 });
 
 test("the day turns at midnight in Phnom Penh even when the server runs in UTC", async (t) => {
   useZone(t, "UTC");
   const h = await start(t);
-  const before = h.pending("2026-11-09");
-  const after = h.pending("2026-11-09");
+  const before = await h.pending("2026-11-09");
+  const after = await h.pending("2026-11-09", true);
 
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-09T16:59:59Z") }); // 23:59:59 on Nov 9 in Phnom Penh
   assert.equal(todayISO(), "2026-11-09");
@@ -106,18 +123,18 @@ test("the day turns at midnight in Phnom Penh even when the server runs in UTC",
   const refused = await h.post(`/${after}/approve`);
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.body, { error: PASSED });
-  assert.equal(h.row(after).status, "pending");
+  assert.equal((await h.row(after)).status, "pending");
 });
 
 test("a request whose start date passed can still be rejected, so the student can ask again", async (t) => {
   const h = await start(t);
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-20T05:00:00Z") });
-  const id = h.pending("2026-11-12");
+  const id = await h.pending("2026-11-12");
 
   const rejected = await h.post(`/${id}/reject`, { reason: "The start date passed before anyone reviewed it." });
   assert.equal(rejected.status, 200);
   assert.equal(rejected.body.request.status, "rejected");
-  assert.equal(h.available(), 2);
+  assert.equal(await h.available(), 2);
 });
 
 // The admin page is bundled with a tiny fake React (the same approach as users.ui.test.js) and its tree is inspected.

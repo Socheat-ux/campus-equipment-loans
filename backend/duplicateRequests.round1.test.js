@@ -12,10 +12,13 @@ const tomorrow = () => addDaysISO(todayISO(), 1);
 const message = (item, date) => `You already have a pending request for ${item} starting ${date}. Cancel it in My requests or wait for a decision.`;
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(() => {
+    server.close();
+    return db.close();
+  });
   const port = server.address().port;
   const root = `http://127.0.0.1:${port}`;
   const call = async (method, path, cookie, body) => {
@@ -36,33 +39,38 @@ async function start(t) {
     return { id: (await res.json()).user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const admin = await signup("nhem.sokha@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
-  const item = (name, quantity = 3) =>
-    Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?)").run(name, quantity).lastInsertRowid);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  const item = async (name, quantity = 3) =>
+    Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?) RETURNING id").run(name, quantity)).lastInsertRowid);
   const ask = (user, equipmentId, borrowDate = tomorrow()) =>
     call("POST", "/api/borrow-requests", user.cookie, { equipmentId, borrowDate, purpose: "Lab work" });
   const adminDo = (id, action, body) => call("POST", `/api/admin/borrow-requests/${id}/${action}`, admin.cookie, body);
-  const pendingIds = (user, equipmentId) =>
-    db
+  const pendingIds = async (user, equipmentId) =>
+    (await db
       .prepare("SELECT id FROM borrow_requests WHERE user_id = ? AND equipment_id = ? AND status = 'pending' ORDER BY id")
-      .all(user.id, equipmentId)
+      .all(user.id, equipmentId))
       .map((r) => r.id);
-  // A row written straight to the table, the way a database from before SCRUM-46 could hold it.
-  const legacyPending = (user, equipmentId, date = tomorrow()) =>
+  // A row written straight to the table, the way a database from before SCRUM-46 could hold it. Postgres now refuses a
+  // second pending row for the same user and item (partial unique index borrow_requests_one_pending), so a test that
+  // needs old duplicates drops the index in its own throwaway database first (see dropOnePendingIndex).
+  const dropOnePendingIndex = () => db.exec("DROP INDEX borrow_requests_one_pending");
+  const legacyPending = async (user, equipmentId, date = tomorrow()) =>
     Number(
-      db
-        .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending')")
-        .run(equipmentId, user.id, date, addDaysISO(date, 7)).lastInsertRowid,
+      (await db
+        .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending') RETURNING id")
+        .run(equipmentId, user.id, date, addDaysISO(date, 7))).lastInsertRowid,
     );
-  return { db, port, call, signup, item, ask, adminDo, pendingIds, legacyPending };
+  return { db, port, call, signup, item, ask, adminDo, pendingIds, legacyPending, dropOnePendingIndex };
 }
 
 test("legacy duplicates: the 409 names the oldest, each can be cancelled, and only then is a new request accepted", async (t) => {
   const h = await start(t);
   const student = await h.signup("touch.sovann@student.cadt.edu.kh");
-  const camera = h.item("Canon camera");
+  const camera = await h.item("Canon camera");
   const day = tomorrow();
-  const [a, b] = [h.legacyPending(student, camera, day), h.legacyPending(student, camera, day)];
+  await h.dropOnePendingIndex(); // simulate a database from before the one-pending rule
+  const a = await h.legacyPending(student, camera, day);
+  const b = await h.legacyPending(student, camera, day);
 
   const refused = await h.ask(student, camera, day);
   assert.equal(refused.status, 409);
@@ -76,13 +84,13 @@ test("legacy duplicates: the 409 names the oldest, each can be cancelled, and on
 
   assert.equal((await h.call("POST", `/api/borrow-requests/${b}/cancel`, student.cookie, {})).status, 200);
   assert.equal((await h.ask(student, camera, day)).status, 201);
-  assert.equal(h.pendingIds(student, camera).length, 1);
+  assert.equal((await h.pendingIds(student, camera)).length, 1);
 });
 
 test("an approved loan does not block a new request for the same item, and the new one is still limited to one", async (t) => {
   const h = await start(t);
   const student = await h.signup("yim.sreypov@student.cadt.edu.kh");
-  const kit = h.item("Raspberry Pi kit", 3);
+  const kit = await h.item("Raspberry Pi kit", 3);
   const first = await h.ask(student, kit);
   assert.equal((await h.adminDo(first.body.request.id, "approve")).status, 200);
 
@@ -95,7 +103,7 @@ test("an approved loan does not block a new request for the same item, and the n
 test("order of refusals: fields, then unknown item, then the duplicate, then stock; nothing is written", async (t) => {
   const h = await start(t);
   const student = await h.signup("chan.dalin@student.cadt.edu.kh");
-  const lens = h.item("Sigma lens", 1);
+  const lens = await h.item("Sigma lens", 1);
   const day = tomorrow();
   const mine = await h.ask(student, lens, day);
   assert.equal(mine.status, 201);
@@ -113,21 +121,21 @@ test("order of refusals: fields, then unknown item, then the duplicate, then sto
   const empty = await h.ask(student, lens, day);
   assert.equal(empty.status, 409, "the duplicate rule wins over the stock rule");
   assert.deepEqual(empty.body, { error: message("Sigma lens", day), existingRequestId: mine.body.request.id });
-  assert.deepEqual(h.pendingIds(student, lens), [mine.body.request.id]);
+  assert.deepEqual(await h.pendingIds(student, lens), [mine.body.request.id]);
 
   // A student with no pending request still hears that the item is out of stock.
   const third = await h.signup("sam.nika@student.cadt.edu.kh");
   const none = await h.ask(third, lens, day);
   assert.equal(none.status, 400);
   assert.equal(none.body.existingRequestId, undefined);
-  assert.deepEqual(h.pendingIds(third, lens), []);
+  assert.deepEqual(await h.pendingIds(third, lens), []);
 });
 
 test("a student cannot learn about someone else's request: the 409 only ever names the caller's own row and date", async (t) => {
   const h = await start(t);
   const one = await h.signup("so.vichea@student.cadt.edu.kh");
   const two = await h.signup("ouk.chanthy@student.cadt.edu.kh");
-  const tripod = h.item("Manfrotto tripod");
+  const tripod = await h.item("Manfrotto tripod");
   const theirDate = addDaysISO(todayISO(), 3);
   const day = tomorrow();
   const theirs = await h.ask(two, tripod, theirDate);
@@ -146,7 +154,7 @@ test("a student cannot learn about someone else's request: the 409 only ever nam
 test("20 requests on warm keep-alive sockets, released in the same tick, still leave exactly one pending row", async (t) => {
   const h = await start(t);
   const student = await h.signup("heng.bopha@student.cadt.edu.kh");
-  const kit = h.item("Arduino kit", 5);
+  const kit = await h.item("Arduino kit", 5);
   const agent = new Agent({ keepAlive: true, maxSockets: 20 });
   t.after(() => agent.destroy());
   const send = (method, path, body) =>
@@ -169,5 +177,5 @@ test("20 requests on warm keep-alive sockets, released in the same tick, still l
   );
   assert.equal(statuses.filter((s) => s === 201).length, 1);
   assert.equal(statuses.filter((s) => s === 409).length, 19);
-  assert.equal(h.pendingIds(student, kit).length, 1);
+  assert.equal((await h.pendingIds(student, kit)).length, 1);
 });

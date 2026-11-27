@@ -13,10 +13,13 @@ const GOOD = "goodpass1";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(() => {
+    server.close();
+    return db.close();
+  });
   const root = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, cookie, body) => {
     const res = await fetch(`${root}${path}`, {
@@ -36,9 +39,9 @@ async function start(t) {
     return { id: (await res.json()).user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const admin = await signup("tep.vanthy@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
-  const item = (name, quantity = 3) =>
-    Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?)").run(name, quantity).lastInsertRowid);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  const item = async (name, quantity = 3) =>
+    Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?) RETURNING id").run(name, quantity)).lastInsertRowid);
   const ask = (user, equipmentId, borrowDate) =>
     call("POST", "/api/borrow-requests", user.cookie, { equipmentId, borrowDate, purpose: "Studio shoot" });
   const adminDo = (id, action, body) => call("POST", `/api/admin/borrow-requests/${id}/${action}`, admin.cookie, body);
@@ -49,12 +52,12 @@ async function start(t) {
 test("a pending request whose start date has passed gets the stale wording, cannot be approved, and cancelling it frees the item", async (t) => {
   const h = await start(t);
   const student = await h.signup("keo.sambath@student.cadt.edu.kh");
-  const camera = h.item("Fujifilm X-T30 Camera");
+  const camera = await h.item("Fujifilm X-T30 Camera");
   const old = addDaysISO(todayISO(), -3);
   const staleId = Number(
-    h.db
-      .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending')")
-      .run(camera, student.id, old, addDaysISO(old, 7)).lastInsertRowid,
+    (await h.db
+      .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending') RETURNING id")
+      .run(camera, student.id, old, addDaysISO(old, 7))).lastInsertRowid,
   );
   const day = addDaysISO(todayISO(), 1);
 
@@ -73,7 +76,7 @@ test("a pending request whose start date has passed gets the stale wording, cann
 test("an item an admin edits to quantity 0 still names the pending request (409, not 400); editing back and rejecting frees it", async (t) => {
   const h = await start(t);
   const student = await h.signup("lim.chanra@student.cadt.edu.kh");
-  const mic = h.item("Rode NT1 Microphone", 1);
+  const mic = await h.item("Rode NT1 Microphone", 1);
   const day = addDaysISO(todayISO(), 2);
   const first = await h.ask(student, mic, day);
   assert.equal(first.status, 201);
@@ -92,7 +95,7 @@ test("an item an admin edits to quantity 0 still names the pending request (409,
 test("equipmentId sent as a numeric string still hits the duplicate check", async (t) => {
   const h = await start(t);
   const student = await h.signup("phan.rithisak@student.cadt.edu.kh");
-  const lamp = h.item("LED panel light");
+  const lamp = await h.item("LED panel light");
   const day = addDaysISO(todayISO(), 1);
   const first = await h.ask(student, lamp, day);
   assert.equal(first.status, 201);

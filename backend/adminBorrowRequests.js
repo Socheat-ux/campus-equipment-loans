@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { requireAdmin } from "./auth.js";
-import { withTransaction } from "./db.js";
+import { isId, withTransaction } from "./db.js";
 import { notify } from "./notifications.js";
-import { addDaysISO, BORROW_MAX_DAYS, parseISODate, rejectionReasonError, todayISO } from "../shared/rules.js";
+import { addDaysISO, BORROW_MAX_DAYS, hasControlChars, parseISODate, rejectionReasonError, todayISO } from "../shared/rules.js";
 
 // Approving after the start date would create a loan that is already late, so the admin rejects instead.
 const START_PASSED = "The start date has passed. Reject this request so the student can send a new one.";
@@ -50,7 +50,7 @@ class ConflictError extends Error {}
 const conflict = (message) => Object.assign(new ConflictError(message), { status: 409 });
 const forbidden = (message) => Object.assign(new ConflictError(message), { status: 403 });
 
-// LIKE treats % and _ as wildcards, so a search for "50%" escapes them with "!".
+// ILIKE treats % and _ as wildcards, so a search for "50%" escapes them with "!".
 const contains = (text) => `%${text.replace(/[!%_]/g, (c) => `!${c}`)}%`;
 
 // Turns the list's query string into a WHERE clause. Every value is bound, never pasted into the SQL.
@@ -75,7 +75,7 @@ export function historyFilter(query) {
   if (item.length > SEARCH_MAX || borrower.length > SEARCH_MAX) {
     return { error: `Searches must be ${SEARCH_MAX} characters or fewer.` };
   }
-  // A NUL would make LIKE match every row, so control characters are refused.
+  // A NUL would make ILIKE match every row, so control characters are refused.
   if (CONTROL_CHARS.test(item) || CONTROL_CHARS.test(borrower)) return { error: "Searches cannot contain control characters." };
 
   const where = [];
@@ -87,9 +87,9 @@ export function historyFilter(query) {
   if (status !== "all") add("r.status = ?", status);
   if (from) add("r.borrow_date >= ?", from);
   if (to) add("r.borrow_date <= ?", to);
-  // SQLite LIKE folds case for ASCII letters only, so "é" does not match "É".
-  if (item) add("(e.name LIKE ? ESCAPE '!' OR e.asset_id LIKE ? ESCAPE '!')", contains(item), contains(item));
-  if (borrower) add("(u.full_name LIKE ? ESCAPE '!' OR u.email LIKE ? ESCAPE '!')", contains(borrower), contains(borrower));
+  // Postgres LIKE is case-sensitive, so the searches use ILIKE to ignore case.
+  if (item) add("(e.name ILIKE ? ESCAPE '!' OR e.asset_id ILIKE ? ESCAPE '!')", contains(item), contains(item));
+  if (borrower) add("(u.full_name ILIKE ? ESCAPE '!' OR u.email ILIKE ? ESCAPE '!')", contains(borrower), contains(borrower));
   return { where: where.length ? where.join(" AND ") : "1 = 1", params };
 }
 
@@ -133,43 +133,44 @@ export function adminBorrowRequestsRouter(db) {
   router.use(requireAdmin(db));
 
   const findRequest = (id) => db.prepare(`${selectColumns} WHERE r.id = ?`).get(id);
-  const currentRequest = (id) =>
-    db.prepare("SELECT status, user_id, equipment_id, borrow_date FROM borrow_requests WHERE id = ?").get(id);
+  // Inside a transaction: locks the request row, so two admins acting on it at once take turns.
+  const lockRequest = (tx, id) =>
+    tx.prepare("SELECT status, user_id, equipment_id, borrow_date FROM borrow_requests WHERE id = ? FOR UPDATE").get(id);
   const sendConflict = (res, err) => {
     if (err instanceof ConflictError) return res.status(err.status).json({ error: err.message });
     throw err;
   };
 
   // shortcut: no paging, every matching row is returned; add LIMIT and OFFSET if a term grows past a few thousand loans.
-  const findHistory = ({ where, params }) =>
-    db.prepare(`${selectColumns} WHERE ${where} ORDER BY r.id DESC`).all(...params).map(asAdminRequest);
+  const findHistory = async ({ where, params }) =>
+    (await db.prepare(`${selectColumns} WHERE ${where} ORDER BY r.id DESC`).all(...params)).map(asAdminRequest);
 
-  router.get("/", (req, res) => {
+  router.get("/", async (req, res) => {
     const filter = historyFilter(req.query);
     if (filter.error) return res.status(400).json({ error: filter.error });
-    const rows = findHistory(filter);
+    const rows = await findHistory(filter);
     const totals = Object.fromEntries(
-      db.prepare("SELECT status, COUNT(*) AS n FROM borrow_requests GROUP BY status").all().map((row) => [row.status, row.n]),
+      (await db.prepare("SELECT status, COUNT(*)::int AS n FROM borrow_requests GROUP BY status").all()).map((row) => [row.status, row.n]),
     );
     const counts = Object.fromEntries(STATUSES.map((name) => [name, totals[name] ?? 0]));
     return res.json({ requests: rows, counts, today: todayISO(), viewerId: req.user.id });
   });
 
   // The same filters as the list, so the file holds exactly the rows the admin is looking at.
-  router.get("/export.csv", (req, res) => {
+  router.get("/export.csv", async (req, res) => {
     const filter = historyFilter(req.query);
     if (filter.error) return res.status(400).json({ error: filter.error });
-    const lines = [CSV_COLUMNS.map(([title]) => title), ...findHistory(filter).map((r) => CSV_COLUMNS.map(([, cell]) => cell(r)))];
+    const lines = [CSV_COLUMNS.map(([title]) => title), ...(await findHistory(filter)).map((r) => CSV_COLUMNS.map(([, cell]) => cell(r)))];
     res.set("Content-Type", "text/csv; charset=utf-8");
     res.set("Content-Disposition", `attachment; filename="borrowing-report-${phnomPenhDate()}.csv"`);
     // The byte order mark makes Excel read the file as UTF-8.
     return res.send(`\uFEFF${lines.map((line) => line.map(csvCell).join(",")).join("\r\n")}\r\n`);
   });
 
-  router.post("/:id/approve", (req, res) => {
+  router.post("/:id/approve", async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(404).json({ error: "Request not found." });
-    const request = findRequest(id);
+    if (!isId(id)) return res.status(404).json({ error: "Request not found." });
+    const request = await findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
     if (request.user_id === req.user.id) return res.status(403).json({ error: OWN_REQUEST });
     if (request.status !== "pending") return res.status(409).json({ error: "Only pending requests can be approved." });
@@ -177,22 +178,22 @@ export function adminBorrowRequestsRouter(db) {
     if (request.stock < 1) return res.status(409).json({ error: "This item is no longer available." });
 
     try {
-      withTransaction(db, () => {
-        const current = currentRequest(id);
+      await withTransaction(db, async (tx) => {
+        const current = await lockRequest(tx, id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be approved.");
         if (current.user_id === req.user.id) throw forbidden(OWN_REQUEST);
         if (current.borrow_date < todayISO()) throw conflict(START_PASSED);
-        const equipment = db
-          .prepare("SELECT id, name, location, available FROM equipment WHERE id = ?")
+        const equipment = await tx
+          .prepare("SELECT id, name, location, available FROM equipment WHERE id = ? FOR NO KEY UPDATE")
           .get(current.equipment_id);
         if (!equipment || equipment.available < 1) throw conflict("This item is no longer available.");
         const decidedAt = new Date().toISOString();
-        db.prepare("UPDATE equipment SET available = available - 1, updated_at = ? WHERE id = ?").run(
+        await tx.prepare("UPDATE equipment SET available = available - 1, updated_at = ? WHERE id = ?").run(
           decidedAt,
           equipment.id,
         );
         const returnDate = addDaysISO(current.borrow_date, BORROW_MAX_DAYS);
-        db.prepare(
+        await tx.prepare(
           "UPDATE borrow_requests SET status = 'approved', return_date = ?, decided_by = ?, decided_at = ? WHERE id = ?",
         ).run(
           returnDate,
@@ -200,7 +201,7 @@ export function adminBorrowRequestsRouter(db) {
           decidedAt,
           id,
         );
-        notify(db, {
+        await notify(tx, {
           userId: current.user_id,
           type: "request_approved",
           message: `Request approved. ${equipment.name} is ready for pickup at ${equipment.location} on ${current.borrow_date}; return by ${returnDate}.`,
@@ -209,29 +210,29 @@ export function adminBorrowRequestsRouter(db) {
     } catch (err) {
       return sendConflict(res, err);
     }
-    return res.json({ request: asAdminRequest(findRequest(id)) });
+    return res.json({ request: asAdminRequest(await findRequest(id)) });
   });
 
-  router.post("/:id/reject", (req, res) => {
+  router.post("/:id/reject", async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(404).json({ error: "Request not found." });
+    if (!isId(id)) return res.status(404).json({ error: "Request not found." });
     const reasonError = rejectionReasonError(req.body?.reason);
     if (reasonError) return res.status(400).json({ error: reasonError, fields: { reason: reasonError } });
     const reason = req.body.reason.trim();
-    const request = findRequest(id);
+    const request = await findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
     if (request.status !== "pending") return res.status(409).json({ error: "Only pending requests can be rejected." });
 
     try {
-      withTransaction(db, () => {
-        const current = currentRequest(id);
+      await withTransaction(db, async (tx) => {
+        const current = await lockRequest(tx, id);
         if (!current || current.status !== "pending") throw conflict("Only pending requests can be rejected.");
-        const equipment = db.prepare("SELECT name FROM equipment WHERE id = ?").get(current.equipment_id);
+        const equipment = await tx.prepare("SELECT name FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
         const decidedAt = new Date().toISOString();
-        db.prepare(
+        await tx.prepare(
           "UPDATE borrow_requests SET status = 'rejected', decided_by = ?, decided_at = ?, decision_reason = ? WHERE id = ?",
         ).run(req.user.id, decidedAt, reason, id);
-        notify(db, {
+        await notify(tx, {
           userId: current.user_id,
           type: "request_rejected",
           message: `Request rejected. ${equipment.name}. See the reason in My requests.`,
@@ -241,26 +242,27 @@ export function adminBorrowRequestsRouter(db) {
     } catch (err) {
       return sendConflict(res, err);
     }
-    return res.json({ request: asAdminRequest(findRequest(id)) });
+    return res.json({ request: asAdminRequest(await findRequest(id)) });
   });
 
-  router.post("/:id/return", (req, res) => {
+  router.post("/:id/return", async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isSafeInteger(id) || id < 1) return res.status(404).json({ error: "Request not found." });
-    const request = findRequest(id);
+    if (!isId(id)) return res.status(404).json({ error: "Request not found." });
+    const request = await findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
     if (request.status !== "approved") {
       return res.status(409).json({ error: "Only approved loans can be marked returned." });
     }
     try {
-      withTransaction(db, () => {
-        const current = currentRequest(id);
+      await withTransaction(db, async (tx) => {
+        const current = await lockRequest(tx, id);
         if (!current || current.status !== "approved") throw conflict("Only approved loans can be marked returned.");
-        // MIN: a returned item is always recorded, and stock never goes above what the store owns.
+        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
+        // LEAST: a returned item is always recorded, and stock never goes above what the store owns.
         const returnedAt = new Date().toISOString();
-        db.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
-        db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
-        notify(db, {
+        await tx.prepare("UPDATE borrow_requests SET status = 'returned', returned_at = ? WHERE id = ?").run(returnedAt, id);
+        await tx.prepare("UPDATE equipment SET available = LEAST(available + 1, quantity), updated_at = ? WHERE id = ?").run(returnedAt, current.equipment_id);
+        await notify(tx, {
           userId: current.user_id,
           type: "request_returned",
           message: `Equipment returned: ${request.equipment_name}.`,
@@ -270,13 +272,13 @@ export function adminBorrowRequestsRouter(db) {
     } catch (err) {
       return sendConflict(res, err);
     }
-    return res.json({ request: asAdminRequest(findRequest(id)) });
+    return res.json({ request: asAdminRequest(await findRequest(id)) });
   });
 
-  router.post("/:id/cancel", (req, res) => {
+  router.post("/:id/cancel", async (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id)) return res.status(404).json({ error: "Request not found." });
-    const request = findRequest(id);
+    if (!isId(id)) return res.status(404).json({ error: "Request not found." });
+    const request = await findRequest(id);
     if (!request) return res.status(404).json({ error: "Request not found." });
     if (!["approved", "rejected"].includes(request.status)) {
       return res.status(409).json({ error: "Only approved or rejected requests can be cancelled by admin." });
@@ -289,24 +291,31 @@ export function adminBorrowRequestsRouter(db) {
         fields: { reason: "Reason must be 300 characters or fewer." },
       });
     }
+    if (hasControlChars(reason)) {
+      return res.status(400).json({
+        error: "Reason cannot contain control characters.",
+        fields: { reason: "Reason cannot contain control characters." },
+      });
+    }
     try {
-      withTransaction(db, () => {
-        const current = currentRequest(id);
+      await withTransaction(db, async (tx) => {
+        const current = await lockRequest(tx, id);
         if (!current || !["approved", "rejected"].includes(current.status)) {
           throw conflict("Only approved or rejected requests can be cancelled by admin.");
         }
+        await tx.prepare("SELECT id FROM equipment WHERE id = ? FOR NO KEY UPDATE").get(current.equipment_id);
         const decidedAt = new Date().toISOString();
         if (current.status === "approved") {
-          db.prepare("UPDATE equipment SET available = MIN(available + 1, quantity), updated_at = ? WHERE id = ?").run(
+          await tx.prepare("UPDATE equipment SET available = LEAST(available + 1, quantity), updated_at = ? WHERE id = ?").run(
             decidedAt,
             current.equipment_id,
           );
         }
-        db.prepare(
+        await tx.prepare(
           "UPDATE borrow_requests SET status = 'cancelled', decided_by = ?, decided_at = ?, decision_reason = ? WHERE id = ?",
         ).run(req.user.id, decidedAt, reason || null, id);
         const reasonText = reason ? ` Reason: ${reason}` : "";
-        notify(db, {
+        await notify(tx, {
           userId: current.user_id,
           type: "request_cancelled",
           message: `Your request for ${request.equipment_name} was cancelled by an administrator.${reasonText}`.slice(0, 300),
@@ -316,7 +325,7 @@ export function adminBorrowRequestsRouter(db) {
     } catch (err) {
       return sendConflict(res, err);
     }
-    return res.json({ request: asAdminRequest(findRequest(id)) });
+    return res.json({ request: asAdminRequest(await findRequest(id)) });
   });
 
   return router;

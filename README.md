@@ -23,16 +23,22 @@ Open http://localhost:5173 and sign in with a test account. `npm run dev:all` st
 
 Run the tests with `npm test`. For a single-process build, run `npm run build` and then `npm start`.
 
-`npm run seed:test` creates one account per role in `DB_PATH` (default `data/app.db`; the script reads `.env` too), all with the password `testpass123`: `test.student@student.cadt.edu.kh` (student), `test.faculty@cadt.edu.kh` (faculty) and `test.admin@cadt.edu.kh` (administrator). Running it again resets them. It adds sample equipment only when the catalogue is empty and creates one marked overdue loan for the admin demo. It refuses to run when `NODE_ENV=production`, because the password is public.
+`npm run seed:test` creates one account per role in the local database (`PGDATA_DIR`, default `data/pgdata`; the script reads `.env` too), all with the password `testpass123`: `test.student@student.cadt.edu.kh` (student), `test.faculty@cadt.edu.kh` (faculty) and `test.admin@cadt.edu.kh` (administrator). Running it again resets them. The local folder belongs to one process at a time: stop `npm run dev:server` before `npm run seed:test`, `npm run copy-db` or the promote command below, or they stop with a message that the folder is in use. It adds sample equipment only when the catalogue is empty and creates one marked overdue loan for the admin demo. It refuses to run when `NODE_ENV=production` or when `DATABASE_URL` is set, because the password is public. To seed a remote database on purpose, run `npm run seed:test -- --remote`.
 
-Settings are environment variables, listed in `.env.example`: `PORT`, `DB_PATH`, `NODE_ENV` and `TRUST_PROXY`. `dev:server`, `dev:all`, `start` and `seed:test` read a `.env` file when there is one; variables already set in the shell or on the host win. Use `NODE_ENV=development` for local work (as in `.env.example`) and `NODE_ENV=production` on the deployed server, where it marks the session cookie Secure and stops `seed:test`. `npm run build` ignores `.env` and the shell NODE_ENV, so the site is always built with production React. On a host that sets `NODE_ENV=production` before installing, npm skips devDependencies (vite is one), so install with `npm ci --include=dev` before `npm run build`. Set `TRUST_PROXY=1` only behind a proxy you control.
+Settings are environment variables, listed in `.env.example`: `PORT`, `NODE_ENV`, `DATABASE_URL`, `DATABASE_CA`, `PGDATA_DIR` and `TRUST_PROXY`. `dev:server`, `dev:all`, `start` and `seed:test` read a `.env` file when there is one; variables already set in the shell or on the host win. Use `NODE_ENV=development` for local work (as in `.env.example`) and `NODE_ENV=production` on the deployed server, where it marks the session cookie Secure and stops `seed:test`. `npm run build` ignores `.env` and the shell NODE_ENV, so the site is always built with production React. On a host that sets `NODE_ENV=production` before installing, npm skips devDependencies (vite is one), so install with `npm ci --include=dev` before `npm run build`. Set `TRUST_PROXY=1` only behind a proxy you control.
+
+## Database
+
+The app uses Postgres. In production (Supabase) set `DATABASE_URL`; with `NODE_ENV=production` the server will not start without it. Use the Supabase pooler connection string (Session or Transaction pooler, from Connect in the dashboard), not the direct `db.<ref>.supabase.co` host: the Supabase docs say the direct host needs IPv6. If the database password contains `?`, `#`, `@`, `/` or `%`, percent-encode those characters in the URL (for example `@` becomes `%40`). A `DATABASE_URL` that does not start with `postgres://` or `postgresql://` is refused by every command. Connections to any host other than localhost use TLS. Set `DATABASE_CA` to the server's CA certificate (PEM text) to verify the server; without it the connection is encrypted but the server is not verified. Without `DATABASE_URL` the app runs on PGlite, a Postgres inside the process, stored in `PGDATA_DIR` (default `data/pgdata`), and tests use it in memory. `DB_PATH` and the SQLite file are retired. Never put the real `DATABASE_URL` in a committed file such as `.env.example`; keep it in your own `.env` or on the host.
+
+To move the data of the old SQLite version, copy `app.db` somewhere safe and run `npm run copy-db -- <path to a copy of the old app.db>`. It writes into `DATABASE_URL` (or the local PGlite folder) and keeps ids, but only into an empty database. If any of the five tables already has rows, it inserts nothing, so a login that was ended or an item that was deleted never comes back. It then only checks the file: for each table it reports how many rows are present and equal, missing in the target or different. It succeeds, changing nothing, when every row is present and equal (for example a repeat run right after the copy), and otherwise stops with an error and a non-zero exit code.
 
 ## Folders
 
 - `frontend/`: the React app (`src/` and `index.html`). `vite.config.js` stays at the root and points Vite at this folder.
 - `backend/`: the Express API and its tests.
 - `shared/rules.js`: validation rules that both the forms and the API use.
-- The root keeps `package.json`, `.env`, `data/` (the SQLite database) and the build output `dist/`. Run every npm command from the root.
+- The root keeps `package.json`, `.env`, `data/` (the local PGlite database) and the build output `dist/`. Run every npm command from the root.
 
 ## Equipment and administrators
 
@@ -47,7 +53,7 @@ Student and faculty roles come from the email address at signup. To grant the ad
 Administrators are not created at signup. To create the very first one, promote an existing account directly in the database:
 
 ```
-node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(process.env.DB_PATH || "data/app.db"); db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); db.close();'
+node --env-file-if-exists=.env --input-type=module -e 'import { openDb } from "./backend/db.js"; const db = await openDb(process.env.DATABASE_URL || process.env.PGDATA_DIR || "data/pgdata"); await db.prepare("UPDATE users SET role = ? WHERE email = ?").run("admin", "lastname.firstname@cadt.edu.kh"); await db.close();'
 ```
 
 ## Borrow requests
@@ -79,4 +85,4 @@ Signed-in users see a bell in the catalogue header and the dashboard top bar. It
 
 ## Known limits
 
-Email ownership is not verified at signup yet. The rate limiter is in memory, and the SQLite file may be wiped on hosts with a temporary disk.
+Email ownership is not verified at signup yet. The rate limiter is in memory, and the local PGlite folder is for development only, so a host with a temporary disk needs `DATABASE_URL`.

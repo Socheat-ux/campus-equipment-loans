@@ -14,10 +14,13 @@ const realFetch = globalThis.fetch; // the helpers below keep using this after a
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 async function start(t) {
-  const db = openDb(":memory:");
+  const db = await openDb(":memory:");
   const server = createApp(db).listen(0, "127.0.0.1");
   await once(server, "listening");
-  t.after(() => server.close());
+  t.after(() => {
+    server.close();
+    return db.close();
+  });
   const origin = `http://127.0.0.1:${server.address().port}`;
   const call = async (method, path, cookie, body) => {
     const res = await realFetch(`${origin}${path}`, {
@@ -37,9 +40,9 @@ async function start(t) {
     return { id: (await res.json()).user.id, cookie: res.headers.get("set-cookie").split(";")[0] };
   };
   const admin = await signup("chea.dara@cadt.edu.kh");
-  db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
-  const item = (name, quantity = 3) =>
-    Number(db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?)").run(name, quantity).lastInsertRowid);
+  await db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(admin.id);
+  const item = async (name, quantity = 3) =>
+    Number((await db.prepare("INSERT INTO equipment (name, category, quantity) VALUES (?, 'Camera', ?) RETURNING id").run(name, quantity)).lastInsertRowid);
   const ask = (user, equipmentId, borrowDate) =>
     call("POST", "/api/borrow-requests", user.cookie, { equipmentId, borrowDate, purpose: "Studio shoot" });
   const adminDo = (id, action) => call("POST", `/api/admin/borrow-requests/${id}/${action}`, admin.cookie, {});
@@ -49,12 +52,12 @@ async function start(t) {
 test("a request starting today: the stale wording appears exactly when approving it is refused, even if midnight passes mid-test", async (t) => {
   const h = await start(t);
   const student = await h.signup("sok.vireak@student.cadt.edu.kh");
-  const tripod = h.item("Manfrotto Tripod");
+  const tripod = await h.item("Manfrotto Tripod");
   const today = todayISO(); // computed once; the server may roll over to the next day during the test
   const firstId = Number(
-    h.db
-      .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending')")
-      .run(tripod, student.id, today, addDaysISO(today, 7)).lastInsertRowid,
+    (await h.db
+      .prepare("INSERT INTO borrow_requests (equipment_id, user_id, borrow_date, return_date, status) VALUES (?, ?, ?, ?, 'pending') RETURNING id")
+      .run(tripod, student.id, today, addDaysISO(today, 7))).lastInsertRowid,
   );
 
   const refused = await h.ask(student, tripod, addDaysISO(today, 1));
@@ -71,7 +74,7 @@ test("a request starting today: the stale wording appears exactly when approving
 test("the real client against the real server keeps existingRequestId and the server message on a duplicate", async (t) => {
   const h = await start(t);
   const student = await h.signup("heng.sophea@student.cadt.edu.kh");
-  const gimbal = h.item("DJI Ronin Gimbal");
+  const gimbal = await h.item("DJI Ronin Gimbal");
   const day = addDaysISO(todayISO(), 2);
 
   const windowBefore = Object.getOwnPropertyDescriptor(globalThis, "window");

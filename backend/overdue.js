@@ -39,9 +39,9 @@ export function overdueRouter(db) {
   });
   router.use(requireAdmin(db));
 
-  router.get("/", (req, res) => {
+  router.get("/", async (req, res) => {
     const today = todayISO();
-    const rows = db.prepare(selectOverdue).all(today);
+    const rows = await db.prepare(selectOverdue).all(today);
     res.json({ overdue: rows.map((row) => asOverdue(row, today)), today });
   });
 
