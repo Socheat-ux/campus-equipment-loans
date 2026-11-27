@@ -17,7 +17,7 @@ export async function hashPassword(pw) {
   return `scrypt$${N}$${r}$${p}$${salt.toString("hex")}$${key.toString("hex")}`;
 }
 
-async function checkPassword(pw, stored) {
+export async function checkPassword(pw, stored) {
   const [, N, r, p, salt, key] = stored.split("$");
   const expected = Buffer.from(key, "hex");
   const actual = await scryptAsync(pw.normalize("NFC"), Buffer.from(salt, "hex"), expected.length, {

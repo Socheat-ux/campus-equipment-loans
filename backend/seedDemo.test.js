@@ -67,7 +67,7 @@ test("every request state is there, dates follow the day it runs, and stock matc
   assert.ok(by("pending").some((r) => r.borrow_date === TODAY), "a pending request starting today");
   assert.ok(by("pending").every((r) => r.borrow_date >= TODAY), "no pending request has a start date in the past");
   for (const r of requests) {
-    assert.ok(r.return_date >= r.borrow_date && r.return_date <= addDaysISO(r.borrow_date, BORROW_MAX_DAYS), `request ${r.id} span`);
+    assert.equal(r.return_date, addDaysISO(r.borrow_date, BORROW_MAX_DAYS), `request ${r.id} span`);
     assert.equal(Boolean(r.decided_by), r.status !== "pending" && !(r.status === "cancelled" && !r.decision_reason), `request ${r.id} decided_by`);
   }
   for (const r of by("rejected")) assert.ok(r.decision_reason, "a rejection carries its reason");
