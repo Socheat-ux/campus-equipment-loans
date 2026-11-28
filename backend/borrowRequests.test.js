@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { openDb } from "./db.js";
 import { createApp } from "./app.js";
-import { addDaysISO, BORROW_MAX_DAYS, todayISO } from "../shared/rules.js";
+import {
+  addDaysISO,
+  BORROW_MAX_ADVANCE_DAYS,
+  BORROW_MAX_DAYS,
+  borrowDateError,
+  borrowDateTooFarMessage,
+  todayISO,
+} from "../shared/rules.js";
 
 const GOOD = "goodpass1";
 
@@ -161,6 +168,40 @@ test("a past borrow date is rejected", async (t) => {
   assert.equal(res.status, 400);
   const body = await res.json();
   assert.equal(body.fields.borrowDate, "Borrow date cannot be in the past.");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 0);
+});
+
+test("a shared rule allows the last allowed day and refuses the next one", () => {
+  const today = "2026-11-28";
+  assert.equal(borrowDateError(addDaysISO(today, BORROW_MAX_ADVANCE_DAYS), today), null);
+  assert.equal(borrowDateError(addDaysISO(today, BORROW_MAX_ADVANCE_DAYS + 1), today), borrowDateTooFarMessage());
+});
+
+test("a borrow date at the maximum advance window is accepted", async (t) => {
+  const { db, call, signup, addEquipment } = await start(t);
+  const student = await signup("sok.dara");
+  const equipmentId = addEquipment("Projector", 1);
+  const borrowDate = addDaysISO(todayISO(), BORROW_MAX_ADVANCE_DAYS);
+
+  const res = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate }, student.cookie);
+  assert.equal(res.status, 201);
+  const { request } = await res.json();
+  assert.equal(request.borrowDate, borrowDate);
+  assert.equal(request.returnDate, addDaysISO(borrowDate, BORROW_MAX_DAYS));
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 1);
+});
+
+test("a borrow date beyond the maximum advance window is refused", async (t) => {
+  const { db, call, signup, addEquipment } = await start(t);
+  const student = await signup("sok.dara");
+  const equipmentId = addEquipment("Projector", 1);
+  const borrowDate = addDaysISO(todayISO(), BORROW_MAX_ADVANCE_DAYS + 1);
+
+  const res = await call("POST", "/api/borrow-requests", { equipmentId, borrowDate }, student.cookie);
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error, borrowDateTooFarMessage());
+  assert.equal(body.fields.borrowDate, borrowDateTooFarMessage());
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM borrow_requests").get().n, 0);
 });
 

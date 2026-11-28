@@ -5,13 +5,21 @@ import { getEquipment } from "../equipment/api.js";
 import { asCard } from "../equipment/cards.js";
 import { createBorrowRequest } from "../borrowRequests/api.js";
 import { ErrorText } from "../auth/AuthUI.jsx";
-import { addDaysISO, borrowRequestInput, BORROW_MAX_DAYS, PURPOSE_MAX, todayISO } from "../../../shared/rules.js";
+import {
+  addDaysISO,
+  borrowRequestInput,
+  BORROW_MAX_ADVANCE_DAYS,
+  BORROW_MAX_DAYS,
+  PURPOSE_MAX,
+  todayISO,
+} from "../../../shared/rules.js";
 
 export default function BorrowRequestNew() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const equipmentId = Number(params.get("equipmentId"));
   const today = todayISO();
+  const latestBorrowDate = addDaysISO(today, BORROW_MAX_ADVANCE_DAYS);
 
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -142,6 +150,7 @@ export default function BorrowRequestNew() {
                     type="date"
                     required
                     min={today}
+                    max={latestBorrowDate}
                     value={borrowDate}
                     onChange={(event) => setBorrowDate(event.target.value)}
                     aria-invalid={borrowFieldError ? true : undefined}
@@ -164,7 +173,7 @@ export default function BorrowRequestNew() {
                   />
                 </div>
                 <p className="hint" id={datesHintId}>
-                  Pick a date from today. Return date is set automatically (max {item.maxDays} days).
+                  Pick a date from today up to {BORROW_MAX_ADVANCE_DAYS} days ahead. Return date is set automatically (max {item.maxDays} days).
                 </p>
 
                 <div className="field">

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireRole } from "./auth.js";
 import { withTransaction } from "./db.js";
 import { MESSAGE_MAX, notify, notifyAdmins } from "./notifications.js";
-import { borrowRequestInput, todayISO } from "../shared/rules.js";
+import { borrowDateTooFarMessage, borrowRequestInput, todayISO } from "../shared/rules.js";
 
 const selectColumns = `
   SELECT r.id, r.equipment_id, e.name AS equipment_name, e.category AS equipment_category,
@@ -57,7 +57,11 @@ export function borrowRequestsRouter(db) {
 
   router.post("/", (req, res) => {
     const { fields, value } = borrowRequestInput(req.body);
-    if (Object.keys(fields).length) return res.status(400).json({ error: "Please fix the fields below.", fields });
+    if (Object.keys(fields).length) {
+      // Surface the advance-window message at the top level too, so API callers see why the date was refused.
+      const error = fields.borrowDate === borrowDateTooFarMessage() ? fields.borrowDate : "Please fix the fields below.";
+      return res.status(400).json({ error, fields });
+    }
 
     const equipment = db
       .prepare("SELECT id, name, available FROM equipment WHERE id = ?")

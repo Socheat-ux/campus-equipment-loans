@@ -73,6 +73,8 @@ export function equipmentQuantityError(quantity) {
 }
 
 export const BORROW_MAX_DAYS = 7;
+// LK's card decision (2026-11-28): a borrow date may be at most this many days ahead of today.
+export const BORROW_MAX_ADVANCE_DAYS = 7;
 export const PURPOSE_MAX = 500;
 export const REJECTION_REASON_MAX = 500;
 
@@ -100,11 +102,17 @@ export function addDaysISO(iso, days) {
   return date.toISOString().slice(0, 10);
 }
 
+export function borrowDateTooFarMessage() {
+  return `Borrow date cannot be more than ${BORROW_MAX_ADVANCE_DAYS} days from today.`;
+}
+
 export function borrowDateError(value, today = todayISO()) {
   if (typeof value !== "string" || !value.trim()) return "Choose a borrow date.";
   const date = parseISODate(value.trim());
   if (!date) return "Enter a valid date.";
   if (value.trim() < today) return "Borrow date cannot be in the past.";
+  const latestDate = addDaysISO(today, BORROW_MAX_ADVANCE_DAYS);
+  if (latestDate && value.trim() > latestDate) return borrowDateTooFarMessage();
   return null;
 }
 
